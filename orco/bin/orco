@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+
+import argparse
+import importlib
+import pathlib
+import pkgutil
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+import orco.transformers
+
+
+def transformer_names():
+    return sorted(module.name
+                  for module in pkgutil.iter_modules(orco.transformers.__path__)
+                  if not module.name.startswith(("_", "test_"))
+                  and not module.name.endswith("_test"))
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    parser = argparse.ArgumentParser(description="Run an ORCO data transformer", usage="%(prog)s TRANSFORMER [ARG ...]")
+    parser.add_argument("transformer", choices=transformer_names(), help="data transformer to run")
+
+    # Parse only the transformer name; remaining arguments belong to it.
+    args = parser.parse_args(argv[:1])
+    transformer = importlib.import_module(f"{orco.transformers.__name__}.{args.transformer}")
+    transformer_main = getattr(transformer, "main", None)
+    if not callable(transformer_main):
+        parser.error(f"transformer {args.transformer!r} has no callable main()")
+    return transformer_main(argv[1:])
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""
+Utilities for writing pandas dataframes to PyTables tables.
+
+The first dataframe written to a group/table pair defines the persistent
+table schema. Later writes are appended after their columns and numeric types
+have been checked against that schema.
+"""
+
+import warnings
+
+import numpy  as np
+import pandas as pd
+import tables as tb
+
+from typing import Any
+
+from .. internal.exceptions import TableMismatch
+
+
+def _decode_str_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Return a copy with byte-valued object columns decoded as ASCII.
+    """
+    def to_string(col: pd.Series) -> pd.Series:
+        if col.dtype != object:
+            return col
+        return col.astype(bytes).str.decode('ascii')
+    return df.apply(to_string)
+
+
+def _make_tabledef(column_types: np.dtype[Any], str_col_length: int) -> dict[str, tb.Col]:
+    """
+    Build a PyTables description from a structured NumPy dtype.
+
+    Pandas represents string columns as objects, so those columns are mapped
+    to fixed-width ASCII byte fields of ``str_col_length`` bytes.
+    """
+    tabledef = {}
+    for index, colname in enumerate(column_types.names):
+        coltype = column_types[colname].name
+        if coltype == 'object':
+            tabledef[colname] = tb.StringCol(str_col_length, pos=index)
+        else:
+            tabledef[colname] = tb.Col.from_type(coltype, pos=index)
+    return tabledef
+
+
+def _check_ascii_strings(arr: np.recarray) -> None:
+    """
+    Validate that every value in an object column is ASCII-compatible.
+
+    Raises:
+        ValueError: If a string or byte value contains non-ASCII data.
+    """
+    for name in arr.dtype.names:
+        if arr.dtype[name].name != 'object':
+            continue
+
+        for value in arr[name]:
+            try:
+                if isinstance(value, bytes):
+                    value.decode('ascii')
+                elif isinstance(value, str):
+                    value.encode('ascii')
+            except UnicodeError as error:
+                raise ValueError(f"column {name!r} contains non-ASCII string data") from error
+
+
+def _check_castability(arr: np.recarray, table_types: np.dtype[Any]) -> None:
+    """
+    Validate that records can be appended to an existing table.
+
+    Column order may differ because :func:`df_writer` reorders records before
+    appending. Column names must match, numeric values must be safely castable
+    within the same kind, and oversized strings produce a warning because
+    PyTables will truncate them to the table's fixed width.
+
+    Raises:
+        TableMismatch: If columns or numeric types are incompatible.
+    """
+    arr_types = arr.dtype
+
+    if set(arr_types.names) != set(table_types.names):
+        raise TableMismatch('dataframe differs from existing table structure')
+
+    for name in arr_types.names:
+        if arr_types[name].name == 'object':
+            max_str_length = max(map(len, arr[name]))
+            if max_str_length > table_types[name].itemsize:
+                warnings.warn('dataframe contains strings longer than allowed', UserWarning)
+
+        elif not np.can_cast(arr_types[name], table_types[name], casting='same_kind'):
+            raise TableMismatch('dataframe numeric types not consistent with the table existing ones')
+
+
+def make_table( hdf5_file  : tb.File
+              , group      : str
+              ,  name      : str
+              , fformat    : dict[str, tb.Col]
+              , description: str = ""
+              ) -> tb.Table:
+    """
+    Create and return a table, creating its root-level group if needed.
+    """
+    if group not in hdf5_file.root:
+        hdf5_file.create_group(hdf5_file.root, group)
+
+    table = hdf5_file.create_table( hdf5_file.root[group]
+                                  , name
+                                  , fformat
+                                  , description
+                                  )
+    return table
+
+
+def df_writer(h5out: tb.File,
+              df: pd.DataFrame,
+              group_name: str,
+              table_name: str,
+              descriptive_string: str = "",
+              str_col_length: int = 32,
+              ) -> None:
+    """
+    Append a dataframe to a table, creating the table when necessary.
+
+    An empty dataframe still creates the group and table, allowing callers to
+    produce a stable output schema even when no rows pass their selection.
+
+    Args:
+        h5out: Open PyTables file with write permission.
+        df: Dataframe whose index is omitted from the stored records.
+        group_name: Name of the root-level destination group.
+        table_name: Name of the destination table within that group.
+        descriptive_string: Human-readable table description.
+        str_col_length: Fixed byte width used when creating string columns.
+
+    Raises:
+        TableMismatch: If ``df`` is incompatible with an existing table.
+        ValueError: If a string column contains non-ASCII data.
+    """
+    arr = df.to_records(index=False)
+    _check_ascii_strings(arr)
+
+    if group_name not in h5out.root or table_name not in h5out.root[group_name]:
+        tabledef = _make_tabledef(arr.dtype, str_col_length=str_col_length)
+        table    =  make_table(h5out,
+                               group       = group_name,
+                               name        = table_name,
+                               fformat     = tabledef,
+                               description = descriptive_string)
+
+    else:
+        table = h5out.root[group_name][table_name]
+
+    if len(df) == 0:
+        return
+
+    data_types = table.dtype
+    _check_castability(arr, data_types)
+
+    columns = list(data_types.names)
+    arr = arr[columns].astype(data_types)
+
+    table.append(arr)
+    table.flush()

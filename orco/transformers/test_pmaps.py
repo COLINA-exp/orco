@@ -1,11 +1,13 @@
 from textwrap import dedent
 
 import numpy  as np
+import pandas as pd
 import tables as tb
 
 from numpy.testing import assert_array_equal
 from pytest import mark
 from pytest import raises
+from pytest import warns
 
 from ..internal.symbols import Detector
 from ..internal.types import IndexRange
@@ -16,6 +18,7 @@ from . pmaps          import PMapConfig
 from . pmaps          import calibration_gains
 from . pmaps          import create_pmap
 from . pmaps          import find_peaks
+from . pmaps          import get_sensor_ids
 from . pmaps          import read_wfms
 from . pmaps          import select_windows
 
@@ -101,7 +104,7 @@ def test_find_peaks_numbers_multiple_peaks():
     amplitudes = np.zeros((1, 10))
     amplitudes[:, [2, 7]] = 2
     waveforms = Waveforms(time=np.arange(10) * SAMPLING_TIME,
-                         channels=np.array([10]),
+                         sensors=np.array([10]),
                          amplitudes=amplitudes)
 
     peaks = find_peaks(waveforms,
@@ -114,11 +117,11 @@ def test_find_peaks_numbers_multiple_peaks():
 
 
 def test_create_pmap_handles_empty_and_nonempty_peak_sets():
-    channels = np.array([10, 11])
+    sensors = np.array([10, 11])
     amplitudes = np.zeros((2, 20))
     amplitudes[:, 3:5] = -2
     waveforms = Waveforms(time=np.arange(20) * SAMPLING_TIME,
-                         channels=channels,
+                         sensors=sensors,
                          amplitudes=amplitudes)
     config = PMapConfig(peak_config(),
                         peak_config(threshold=10),
@@ -128,7 +131,7 @@ def test_create_pmap_handles_empty_and_nonempty_peak_sets():
     s1, s2 = create_pmap(42, waveforms, np.ones(2), config)
 
     assert list(s1.columns) == ["event", "peak", "time", "summed",
-                                "channel_010", "channel_011"]
+                                "sensor_010", "sensor_011"]
     assert set(s1.event) == {42}
     assert set(s1.peak) == {0}
     assert s2.empty
@@ -137,20 +140,20 @@ def test_create_pmap_handles_empty_and_nonempty_peak_sets():
 def test_create_pmap_peak_height_matches_summed_waveform():
     # Custom waveform with a Gaussian S1-like pulse, recorded as a negative
     # dip: create_pmap inverts the polarity, so it becomes a positive peak.
-    channels = np.array([10, 11])
+    sensors = np.array([10, 11])
     samples  = np.arange(60)
     center, sigma = 10, 1
     pulse = -5 * np.exp(-0.5 * ((samples - center) / sigma) ** 2)
-    amplitudes = np.tile(pulse, (len(channels), 1))
+    amplitudes = np.tile(pulse, (len(sensors), 1))
     waveforms = Waveforms(time=samples * SAMPLING_TIME,
-                          channels=channels,
+                          sensors=sensors,
                           amplitudes=amplitudes)
     config = PMapConfig(peak_config(),
                         peak_config(threshold=11),
                         SAMPLING_TIME,
                         Detector.pColina)
 
-    s1, s2 = create_pmap(7, waveforms, np.ones(len(channels)), config)
+    s1, s2 = create_pmap(7, waveforms, np.ones(len(sensors)), config)
 
     # Only the S1 pulse is found, as a single peak.
     assert s2.empty
@@ -176,17 +179,70 @@ def test_read_wfms_yields_waveform_collections(tmp_path):
         h5out.create_array(group, "channel_id", channels)
         h5out.create_array(group, "event_id", events)
 
+    channel_mapping = pd.DataFrame({"ChannelID": channels,
+                                    "SensorID": channels + 1000})
     sampling_time = 16 * units.nanosecond
-    records = list(read_wfms(filename, sampling_time))
+    records = list(read_wfms(filename, channel_mapping, sampling_time))
 
     assert [record["event"] for record in records] == events.tolist()
-    assert_array_equal(records[0]["wfms"].channels, channels)
+    assert_array_equal(records[0]["wfms"].sensors, channels + 1000)
     assert_array_equal(records[1]["wfms"].amplitudes, amplitudes[1])
     assert_array_equal(records[0]["wfms"].time,
                        np.arange(3) * SAMPLING_TIME)
+
+
+def test_read_wfms_warns_and_drops_unknown_channels(tmp_path):
+    filename = tmp_path / "waveforms.h5"
+    amplitudes = np.arange(12).reshape(2, 3, 2)
+    channels = np.array([10, 11, 42])
+    events = np.array([100, 101])
+    with tb.open_file(filename, "w") as h5out:
+        group = h5out.create_group("/", "Waveforms")
+        h5out.create_array(group, "adcs", amplitudes)
+        h5out.create_array(group, "channel_id", channels)
+        h5out.create_array(group, "event_id", events)
+
+    channel_mapping = pd.DataFrame({"ChannelID": [10, 11],
+                                    "SensorID": [1010, 1011]})
+    sampling_time = 16 * units.nanosecond
+
+    with warns(UserWarning, match="unknown to the mapping"):
+        records = list(read_wfms(filename, channel_mapping, sampling_time))
+
+    assert_array_equal(records[0]["wfms"].sensors, [1010, 1011])
+    assert_array_equal(records[0]["wfms"].amplitudes, amplitudes[0, :2])
 
 
 def test_calibration_gains_follow_waveform_channel_order():
     gains = calibration_gains(Detector.pColina, -1, [11, 10])
 
     assert_array_equal(gains, [1., 1.])
+
+
+def test_get_sensor_ids_maps_channels_in_input_order():
+    mapping = pd.DataFrame({"ChannelID": [0, 2],
+                            "SensorID": [1000, 1002]})
+
+    sensor_ids, keep = get_sensor_ids(np.array([2, 0]), mapping)
+
+    assert_array_equal(sensor_ids, [1002, 1000])
+    assert_array_equal(keep, [True, True])
+
+
+def test_get_sensor_ids_warns_and_drops_unknown_channels():
+    mapping = pd.DataFrame({"ChannelID": [0, 2],
+                            "SensorID": [1000, 1002]})
+
+    with warns(UserWarning, match="unknown to the mapping"):
+        sensor_ids, keep = get_sensor_ids(np.array([0, 1, 2]), mapping)
+
+    assert_array_equal(sensor_ids, [1000, 1002])
+    assert_array_equal(keep, [True, False, True])
+
+
+def test_get_sensor_ids_raises_on_missing_channels():
+    mapping = pd.DataFrame({"ChannelID": [0, 1, 2],
+                            "SensorID": [1000, 1001, 1002]})
+
+    with raises(ValueError, match="missing expected channels"):
+        get_sensor_ids(np.array([0, 1]), mapping)

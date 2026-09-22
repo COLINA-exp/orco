@@ -6,12 +6,15 @@ from pathlib     import Path
 
 import argparse
 
+import warnings
+
 import numpy  as np
 import tables as tb
 import pandas as pd
 
 from typing import Any, Iterator, Mapping
 
+from ..database.io      import load_channel_mapping
 from ..database.io      import load_sensor_calibration
 from ..internal.symbols import Detector
 from ..internal.symbols import all_symbols
@@ -73,8 +76,54 @@ class PMapConfig:
         return cls(s1_config, s2_config, scope["sampling_time"], scope["detector"])
 
 
-def read_wfms(input_file   : Path,
-              sampling_time: float) -> Iterator[Mapping[str, Any]]:
+def get_sensor_ids(channels       : np.ndarray,
+                   channel_mapping: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Translate the channel identifiers of an input file into sensor identifiers.
+
+    Channels present in the input but absent from the mapping are ignored and
+    reported with a warning; channels expected by the mapping but absent from
+    the input raise an error.
+
+    Args:
+        channels: One-dimensional array of channel identifiers found in
+            the input data.
+        channel_mapping: Sensor-to-channel mapping valid for the run.
+
+    Returns:
+        A tuple ``(sensor_ids, keep)`` with the sensor identifiers of the
+        mapped input channels and the boolean mask selecting those channels
+        among ``channels``.
+
+    Warns:
+        If the input data contains channels not present in the mapping.
+
+    Raises:
+        ValueError: If the input data is missing channels expected by the
+            mapping.
+    """
+    expected = channel_mapping.ChannelID.values
+
+    exist_in_db = np.isin(channels, expected)
+    if not exist_in_db.all():
+        warnings.warn(f"Input data has channels unknown to the mapping; "
+                      f"they will be ignored: {channels[~exist_in_db].tolist()}")
+
+    exist_in_file = np.isin(expected, channels)
+    if not np.all(exist_in_file):
+        missing = expected[~exist_in_file].tolist()
+        raise ValueError(f"Input data is missing expected channels: {missing}")
+
+    sensor_ids = (channel_mapping.set_index("ChannelID")
+                                 .SensorID
+                                 .loc[channels[exist_in_db]]
+                                 .values)
+    return sensor_ids, exist_in_db
+
+
+def read_wfms(input_file     : Path,
+              channel_mapping: pd.DataFrame,
+              sampling_time  : float) -> Iterator[Mapping[str, Any]]:
     with tb.open_file(input_file) as infile:
         all_wfms = infile.root.Waveforms.adcs
         channels = infile.root.Waveforms.channel_id.read()
@@ -85,18 +134,20 @@ def read_wfms(input_file   : Path,
         if (all_wfms.shape[0], all_wfms.shape[1]) != (event_id.size, channels.size):
             raise RuntimeError("Invalid shape of waveform array")
 
+        sensor_ids, keep = get_sensor_ids(channels, channel_mapping)
         sampling_time = sampling_time.to(units.microsecond).magnitude
         time = np.arange(all_wfms.shape[2]) * sampling_time
         for amplitudes, event in zip(all_wfms, event_id):
-            yield dict(wfms=Waveforms(time, channels, amplitudes), event=event)
+            amplitudes = amplitudes[keep]
+            yield dict(wfms=Waveforms(time, sensor_ids, amplitudes), event=event)
 
 
 def select_windows(windows: list[IndexRange],
-                   min_time,
-                   max_time,
-                   min_samples,
-                   max_samples,
-                   sampling_time) -> list[IndexRange]:
+                   min_time: float,
+                   max_time: float,
+                   min_samples: int,
+                   max_samples: int,
+                   sampling_time: float) -> list[IndexRange]:
     def ok(window):
         start_time = window.lower       * sampling_time
         end_time   = (window.upper - 1) * sampling_time
@@ -110,17 +161,17 @@ def select_windows(windows: list[IndexRange],
 
 def peak_to_df(peak: Waveforms) -> pd.DataFrame:
     data = dict(time=peak.time, summed=peak.sum_sensors())
-    for c, wf in zip(peak.channels, peak.amplitudes):
-        data[f"channel_{c:>03}"] = wf
+    for c, wf in zip(peak.sensors, peak.amplitudes):
+        data[f"sensor_{c:>03}"] = wf
     return pd.DataFrame(data)
 
 
-def empty_peak_df(channels):
+def empty_peak_df(sensors: np.ndarray) -> pd.DataFrame:
     # in order to keep the type of each column, we give it a dummy value that we
     # later remove
     data = dict(peak=[0], time=[0.], summed=[0.])
-    for c in channels:
-        data[f"channel_{c:>03}"] = [0.]
+    for c in sensors:
+        data[f"sensor_{c:>03}"] = [0.]
 
     return pd.DataFrame(data).iloc[:0]
 
@@ -136,7 +187,7 @@ def find_peaks(wfms         : Waveforms,
     peaks   = slice_waveforms(wfms, windows, config.padding)
     peaks   = [peak_to_df(peak) for peak in peaks]
     if not peaks:
-        return empty_peak_df(wfms.channels)
+        return empty_peak_df(wfms.sensors)
 
     df = pd.concat(peaks, keys=np.arange(len(peaks)))
     df.reset_index(drop=False, inplace=True, level=0, names="peak")
@@ -144,7 +195,10 @@ def find_peaks(wfms         : Waveforms,
     return df
 
 
-def create_pmap(event, wfms: Waveforms, gains, config):
+def create_pmap(event: int,
+                wfms : Waveforms,
+                gains: np.ndarray,
+                config: PMapConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     wfms = remove_baseline(wfms)
     wfms = invert_polarity(wfms)
     wfms = calibrate(wfms, gains)
@@ -158,18 +212,18 @@ def create_pmap(event, wfms: Waveforms, gains, config):
     return s1s, s2s
 
 
-def calibration_gains(detector: Detector, run_number: int, channels: np.ndarray) -> np.ndarray:
+def calibration_gains(detector: Detector, run_number: int, sensors: np.ndarray) -> np.ndarray:
     """
-    Return gains ordered according to ``channels``.
+    Return gains ordered according to ``sensors``.
     """
     calibration = load_sensor_calibration(detector, run_number).set_index("ChannelID")
 
-    channels = np.asarray(channels)
-    missing  = channels[~np.isin(channels, calibration.index)]
+    sensors = np.asarray(sensors)
+    missing = sensors[~np.isin(sensors, calibration.index)]
     if missing.size:
-        raise ValueError(f"Missing calibration gains for channels {missing}")
+        raise ValueError(f"Missing calibration gains for sensors {missing}")
 
-    return calibration.loc[channels, "Gain"].to_numpy(dtype=float)
+    return calibration.loc[sensors, "Gain"].to_numpy(dtype=float)
 
 
 def main(argv=None):
@@ -185,12 +239,13 @@ def main(argv=None):
         parser.error("--n-events must be -1 or non-negative")
 
     config = PMapConfig.load(args.config_file)
+    mapping = load_channel_mapping(config.detector, args.run_number)
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
-        for i, data in enumerate(read_wfms(args.input_file, config.sampling_time)):
+        for i, data in enumerate(read_wfms(args.input_file, mapping, config.sampling_time)):
             if args.n_events >= 0 and i >= args.n_events:
                 break
 
-            gains    = calibration_gains(config.detector, args.run_number, data["wfms"].channels)
+            gains    = calibration_gains(config.detector, args.run_number, data["wfms"].sensors)
             s1s, s2s = create_pmap(data["event"], data["wfms"], gains, config)
 
             df_writer(outfile, s1s, "PMaps", "S1")

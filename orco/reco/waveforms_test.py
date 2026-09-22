@@ -16,7 +16,7 @@ from . waveforms import slice_waveforms
 def waveform_collection(amplitudes):
     amplitudes = np.asarray(amplitudes)
     return Waveforms(time=np.arange(amplitudes.shape[1]),
-                     channels=np.arange(amplitudes.shape[0]),
+                     sensors=np.arange(amplitudes.shape[0]),
                      amplitudes=amplitudes)
 
 
@@ -43,7 +43,7 @@ def test_calibrate_applies_one_gain_per_channel():
 
 
 def test_calibrate_rejects_invalid_gains():
-    with raises(ValueError, match="each waveform channel"):
+    with raises(ValueError, match="each waveform sensor"):
         calibrate(waveform_collection(np.ones((2, 3))), [1])
     with raises(ValueError, match="Invalid gain"):
         calibrate(waveform_collection(np.ones((1, 3))), [0])

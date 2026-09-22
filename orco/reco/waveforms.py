@@ -18,14 +18,14 @@ def remove_baseline(wfms  : Waveforms,
     """
     baselines  = np.apply_along_axis(method, 1, wfms.amplitudes)
     amplitudes = wfms.amplitudes - baselines[:, np.newaxis]
-    return Waveforms(wfms.time, wfms.channels, amplitudes)
+    return Waveforms(wfms.time, wfms.sensors, amplitudes)
 
 
 def invert_polarity(wfms: Waveforms) -> Waveforms:
     """
     Return floating-point waveforms with their polarity inverted.
     """
-    return Waveforms(wfms.time, wfms.channels, -wfms.amplitudes)
+    return Waveforms(wfms.time, wfms.sensors, -wfms.amplitudes)
 
 
 def calibrate(wfms: Waveforms, gains: ArrayLike) -> Waveforms:
@@ -34,8 +34,8 @@ def calibrate(wfms: Waveforms, gains: ArrayLike) -> Waveforms:
     """
     gains = np.asarray(gains, dtype=float)
 
-    if gains.ndim != 1 or wfms.nchannels() != gains.size:
-        raise ValueError("A gain is required for each waveform channel")
+    if gains.ndim != 1 or wfms.nsensors() != gains.size:
+        raise ValueError("A gain is required for each waveform sensor")
 
     invalid = np.isnan(gains) | (gains == 0)
     if np.any(invalid):
@@ -43,7 +43,7 @@ def calibrate(wfms: Waveforms, gains: ArrayLike) -> Waveforms:
         raise ValueError(f"Invalid gain values at indices {indices}: {gains[indices]}")
 
     amplitudes = wfms.amplitudes / gains[:, np.newaxis]
-    return Waveforms(wfms.time, wfms.channels, amplitudes)
+    return Waveforms(wfms.time, wfms.sensors, amplitudes)
 
 
 def find_windows(wfsum : ArrayLike,
@@ -91,7 +91,7 @@ def slice_waveforms(wfms   : Waveforms,
         upper = min(window.upper + padding, wfms.nsamples())
         sl = slice(lower, upper)
         slices.append(Waveforms(wfms.time[sl],
-                                wfms.channels,
+                                wfms.sensors,
                                 wfms.amplitudes[:, sl]))
 
     return slices

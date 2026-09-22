@@ -26,17 +26,17 @@ def test_index_range_rejects_invalid_bounds():
 
 def test_waveforms_accepts_consistent_shapes():
     waveforms = Waveforms(time       = np.arange(4),
-                          channels   = np.array([10, 11]),
+                          sensors    = np.array([10, 11]),
                           amplitudes = np.zeros((2, 4)))
 
-    assert waveforms.nchannels() == 2
+    assert waveforms.nsensors() == 2
     assert waveforms.nsamples () == 4
     assert np.issubdtype(waveforms.amplitudes.dtype, np.floating)
 
 
 def test_waveforms_converts_integer_amplitudes_to_float():
     waveforms = Waveforms(time       = np.arange(1),
-                          channels   = np.array([10, 11]),
+                          sensors    = np.array([10, 11]),
                           amplitudes = np.array([[40_000], [40_000]],
                                                 dtype=np.uint16))
 
@@ -61,27 +61,27 @@ def test_waveforms_converts_integer_amplitudes_to_float():
 )
 def test_waveforms_rejects_invalid_dimensions(time, channels, amplitudes):
     with raises(InvalidShape, match="Invalid input shapes"):
-        Waveforms(time=time, channels=channels, amplitudes=amplitudes)
+        Waveforms(time=time, sensors=channels, amplitudes=amplitudes)
 
 
 def test_waveforms_rejects_inconsistent_shapes():
     with raises(InvalidShape, match="not consistent"):
         Waveforms(time       = np.arange(4),
-                  channels   = np.array([10, 11]),
+                  sensors    = np.array([10, 11]),
                   amplitudes = np.zeros((3, 4)))
 
 
 def test_waveforms_rejects_empty_axes():
     with raises(InvalidShape, match="at least one sensor and one sample"):
         Waveforms(time       = np.array([]),
-                  channels   = np.array([10, 11]),
+                  sensors    = np.array([10, 11]),
                   amplitudes = np.empty((2, 0)))
 
 
 def test_waveforms_cannot_be_changed_after_construction():
     time = np.arange(4)
     waveforms = Waveforms(time       = time,
-                          channels   = np.array([10, 11]),
+                          sensors    = np.array([10, 11]),
                           amplitudes = np.zeros((2, 4)))
 
     time[0] = 100

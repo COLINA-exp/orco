@@ -49,7 +49,7 @@ class Waveforms:
 
     Attributes:
         time      : One-dimensional sampling-time array.
-        channels  : One-dimensional sensor-identifier array.
+        sensors   : One-dimensional sensor-identifier array.
         amplitudes: Two-dimensional waveform-amplitude array.
 
     Raises:
@@ -58,32 +58,32 @@ class Waveforms:
     """
 
     time      : np.ndarray
-    channels  : np.ndarray
+    sensors   : np.ndarray
     amplitudes: np.ndarray
 
     def __post_init__(self) -> None:
         time       = np.array(self.time)
-        channels   = np.array(self.channels)
+        sensors    = np.array(self.sensors)
         amplitudes = np.array(self.amplitudes, dtype=float)
         time      .setflags(write=False)
-        channels  .setflags(write=False)
+        sensors   .setflags(write=False)
         amplitudes.setflags(write=False)
 
-        if (time.ndim != 1 or channels.ndim != 1 or amplitudes.ndim != 2):
+        if (time.ndim != 1 or sensors.ndim != 1 or amplitudes.ndim != 2):
             raise InvalidShape("Waveforms: Invalid input shapes.")
 
-        if channels.size == 0 or time.size == 0:
+        if sensors.size == 0 or time.size == 0:
             raise InvalidShape("Waveforms: Waveforms must have at least one sensor and one sample")
 
-        if (channels.size, time.size) != amplitudes.shape:
+        if (sensors.size, time.size) != amplitudes.shape:
             raise InvalidShape("Waveforms: Shape of inputs is not consistent.")
 
         object.__setattr__(self, "time"      , time)
-        object.__setattr__(self, "channels"  , channels)
+        object.__setattr__(self, "sensors"   , sensors)
         object.__setattr__(self, "amplitudes", amplitudes)
 
-    def nchannels(self) -> int:
-        return len(self.channels)
+    def nsensors(self) -> int:
+        return len(self.sensors)
 
     def nsamples(self) -> int:
         return len(self.time)

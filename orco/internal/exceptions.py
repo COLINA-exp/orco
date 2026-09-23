@@ -6,6 +6,13 @@ class TableMismatch(ValueError):
     schema.
     """
 
+
+class InvalidRange(ValueError):
+    """
+    Raised when range bounds cannot describe a valid range.
+    """
+
+
 class InvalidIndexRange(ValueError):
     """
     Raised when index-range bounds cannot describe a valid range.

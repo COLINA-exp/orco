@@ -7,21 +7,51 @@ from pytest import mark
 from pytest import raises
 
 from .exceptions import InvalidIndexRange
+from .exceptions import InvalidRange
 from .exceptions import InvalidShape
 from .types      import IndexRange
+from .types      import Interval
 from .types      import Waveforms
 
 
 def test_index_range_accepts_half_open_and_empty_ranges():
     assert IndexRange(2, 5) == IndexRange(lower=2, upper=5)
     assert IndexRange(3, 3).lower == IndexRange(3, 3).upper
+    assert len(IndexRange(2, 5)) == 3
+    assert len(IndexRange(3, 3)) == 0
+    assert IndexRange(2, 5).length == 3
+    assert IndexRange(3, 3).length == 0
 
 
 def test_index_range_rejects_invalid_bounds():
     with raises(InvalidIndexRange, match="negative"):
         IndexRange(-1, 2)
-    with raises(InvalidIndexRange, match="exceed"):
+    with raises(InvalidRange, match="exceed"):
         IndexRange(3, 2)
+
+
+def test_range_accepts_float_bounds():
+    interval = Interval(1.5, 3.0)
+    assert interval.lower == 1.5
+    assert interval.upper == 3.0
+    assert interval.length == 1.5
+    assert 2.0 in interval
+    assert 1.5 in interval
+    assert 3.0 not in interval
+
+
+def test_range_accepts_empty_and_negative_float_bounds():
+    assert Interval(2.0, 2.0).lower == Interval(2.0, 2.0).upper
+    assert Interval(2.0, 2.0).length == 0
+    interval = Interval(-5.0, -2.0)
+    assert interval.length == 3.0
+    assert -5.0 in interval
+    assert -2.0 not in interval
+
+
+def test_range_rejects_reversed_bounds():
+    with raises(InvalidRange, match="exceed"):
+        Interval(3.0, 1.0)
 
 
 def test_waveforms_accepts_consistent_shapes():

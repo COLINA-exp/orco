@@ -3,41 +3,75 @@ Small domain-specific value types shared by ORCO modules.
 """
 
 from dataclasses import dataclass
+from typing      import Generic, TypeVar
 
 import numpy as np
 
-from . exceptions import InvalidIndexRange
-from . exceptions import InvalidShape
+from .exceptions import InvalidRange
+from .exceptions import InvalidIndexRange
+from .exceptions import InvalidShape
+
+
+T = TypeVar("T")
 
 
 @dataclass(frozen=True, slots=True)
-class IndexRange:
+class Range(Generic[T]):
     """
-    A validated half-open index range ``[lower, upper)``. Equal bounds represent
+    A validated half-open range ``[lower, upper)``. Equal bounds represent
     an empty range.
+
+    Attributes:
+        lower: Inclusive lower limit.
+        upper: Exclusive upper limit, greater than or equal to ``lower``.
+
+    Raises:
+        InvalidRange: If the bounds are reversed.
+    """
+    lower: T
+    upper: T
+
+    def __post_init__(self) -> None:
+        if self.lower > self.upper:
+            raise InvalidRange("Range: lower bound cannot exceed upper bound")
+
+    @property
+    def length(self) -> T:
+        return self.upper - self.lower
+
+    def __contains__(self, value: T) -> bool:
+        return self.lower <= value < self.upper
+
+
+@dataclass(frozen=True, slots=True)
+class Interval(Range[float]):
+    """
+    A validated half-open range of real values ``[lower, upper)``.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class IndexRange(Range[int]):
+    """
+    A validated half-open index range ``[lower, upper)`` with non-negative
+    integer bounds.
 
     Attributes:
         lower: Inclusive, non-negative start index.
         upper: Exclusive stop index, greater than or equal to ``lower``.
 
     Raises:
-        InvalidIndexRange: If a bound is negative or bounds are reversed.
+        InvalidIndexRange: If a bound is negative. Reversed bounds raise
+            InvalidRange from the base class.
     """
 
-    lower: int
-    upper: int
-
     def __post_init__(self) -> None:
+        Range.__post_init__(self)
         if self.lower < 0:
             raise InvalidIndexRange("IndexRange: lower bound cannot be negative")
-        if self.lower > self.upper:
-            raise InvalidIndexRange("IndexRange: lower bound cannot exceed upper bound")
 
     def __len__(self) -> int:
-        return self.upper - self.lower
-
-    def __contains__(self, value: int) -> bool:
-        return self.lower <= value < self.upper
+        return self.length
 
 
 @dataclass(frozen=True, slots=True)

@@ -172,3 +172,46 @@ def load_channel_mapping(detector: Detector, run_number: int) -> pd.DataFrame:
         return pd.read_sql_query(query,
                                  connection,
                                  params={"run_number": run_number})
+
+
+@lru_cache()
+def load_sensor_position(detector: Detector, run_number: int) -> pd.DataFrame:
+    """
+    Load the sensor positions valid for a run into a dataframe.
+
+    Rows are ordered by sensor identifier.
+
+    Args:
+        detector: Detector whose sensor positions are required.
+        run_number: Run for which the positions are required.
+
+    Returns:
+        Position rows satisfying ``FirstRun <= run_number`` and either
+        ``run_number <= LastRun`` or ``LastRun IS NULL``.
+
+    Raises:
+        FileNotFoundError: If no database is available for ``detector``.
+        ValueError: If a database filename does not identify a known detector.
+        sqlite3.Error: If the selected database cannot be opened or queried.
+    """
+    database_file = get_database(detector)
+    uri = f"{database_file.resolve().as_uri()}?mode=ro"
+    query = """
+        SELECT
+            FirstRun,
+            LastRun,
+            SensorID,
+            Type,
+            X,
+            Y,
+            Z
+        FROM SensorPosition
+        WHERE FirstRun <= :run_number
+          AND (LastRun IS NULL OR :run_number <= LastRun)
+        ORDER BY SensorID
+    """
+
+    with closing(sqlite3.connect(uri, uri=True)) as connection:
+        return pd.read_sql_query(query,
+                                 connection,
+                                 params={"run_number": run_number})

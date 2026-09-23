@@ -12,6 +12,7 @@ from .io import get_database
 from .io import load_channel_mapping
 from .io import load_sensor_calibration
 from .io import load_sensor_count
+from .io import load_sensor_position
 
 
 def create_database(filename):
@@ -65,6 +66,24 @@ def create_database(filename):
                   ( 0,   10,  11, 1),
                   ( 5,    5,  12, 2),
                   ( 0, None,  13, 3)))
+
+            connection.execute("""
+                CREATE TABLE SensorPosition (
+                    FirstRun  INT,
+                    LastRun   INT,
+                    SensorID  INT,
+                    Type      TEXT,
+                    X         DOUBLE,
+                    Y         DOUBLE,
+                    Z         DOUBLE
+                )
+            """)
+            connection.executemany("""
+                INSERT INTO SensorPosition VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, ((-1,   -1, 10, "S13370", 1.0, 2.0, 3.0),
+                  ( 0,   10, 11, "S13370", 4.0, 5.0, 6.0),
+                  ( 5,    5, 12, "S13370", 7.0, 8.0, 9.0),
+                  ( 0, None, 13, "S13370", 1.5, 2.5, 3.5)))
 
 
 def test_load_sensor_calibration_selects_valid_run_intervals(tmp_path, monkeypatch):
@@ -163,6 +182,64 @@ def test_load_channel_mapping_reads_bundled_database():
                        [n * 1000 + k for n in range(5) for k in range(25)])
     assert_array_equal(mapping.FirstRun, -1)
     assert_array_equal(mapping.LastRun , -1)
+
+
+def test_load_sensor_position_selects_valid_run_intervals(tmp_path, monkeypatch):
+    filename = tmp_path / "pColina.sqlite3"
+    create_database(filename)
+    monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
+
+    position = load_sensor_position(Detector.pColina, 5)
+
+    assert position.SensorID.tolist() == [11, 12, 13]
+    assert position.X.tolist() == [4.0, 7.0, 1.5]
+    assert position.Y.tolist() == [5.0, 8.0, 2.5]
+    assert position.Z.tolist() == [6.0, 9.0, 3.5]
+
+
+def test_load_sensor_position_keeps_open_interval_after_last_run(tmp_path, monkeypatch):
+    filename = tmp_path / "pColina.sqlite3"
+    create_database(filename)
+    monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
+
+    position = load_sensor_position(Detector.pColina, 11)
+
+    assert position.SensorID.tolist() == [13]
+    assert position.X.tolist() == [1.5]
+    assert position.Y.tolist() == [2.5]
+    assert position.Z.tolist() == [3.5]
+
+
+def test_load_sensor_position_reads_bundled_database():
+    position = load_sensor_position(Detector.pColina, -1)
+
+    assert len(position) == 125
+    assert_array_equal(position.SensorID, range(125))
+    assert_array_equal(position.FirstRun, -1)
+    assert_array_equal(position.LastRun , -1)
+    assert (position.Type == "S13370").all()
+
+    position = position.set_index("SensorID")
+    assert position.loc[0  , ["X", "Y", "Z"]].tolist() == [-12.4, -12.4, -13.5]
+    assert position.loc[24 , ["X", "Y", "Z"]].tolist() == [ 12.4,  12.4, -13.5]
+    assert position.loc[25 , ["X", "Y", "Z"]].tolist() == [ -3.1, -27.9, 128.5]
+    assert position.loc[100, ["X", "Y", "Z"]].tolist() == [ 27.9,   3.1, 128.5]
+    assert position.loc[124, ["X", "Y", "Z"]].tolist() == [  3.1,  27.9, 128.5]
+
+
+def test_load_sensor_position_reads_run_zero_positions():
+    position = load_sensor_position(Detector.pColina, 0)
+
+    assert_array_equal(position.SensorID, range(4))
+    assert_array_equal(position.FirstRun, 0)
+    assert (position.LastRun.isna()).all()
+    assert (position.Type == "S13370").all()
+
+    position = position.set_index("SensorID")
+    assert position.loc[0, ["X", "Y", "Z"]].tolist() == [-3.1, -3.1, -14.0]
+    assert position.loc[1, ["X", "Y", "Z"]].tolist() == [-3.1,  3.1, -14.0]
+    assert position.loc[2, ["X", "Y", "Z"]].tolist() == [ 3.1, -3.1, -14.0]
+    assert position.loc[3, ["X", "Y", "Z"]].tolist() == [ 3.1,  3.1, -14.0]
 
 
 def test_find_databases_recognizes_sqlite3_extension(tmp_path, monkeypatch):

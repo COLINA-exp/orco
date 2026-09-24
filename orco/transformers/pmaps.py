@@ -248,6 +248,8 @@ def main(argv=None):
             gains    = calibration_gains(config.detector, args.run_number, data["wfms"].sensors)
             s1s, s2s = create_pmap(data["event"], data["wfms"], gains, config)
 
+            events = pd.DataFrame(dict(event=[data["event"]]))
+            df_writer(outfile, events, "PMaps", "events")
             df_writer(outfile, s1s, "PMaps", "S1")
             df_writer(outfile, s2s, "PMaps", "S2")
 

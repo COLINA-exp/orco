@@ -19,6 +19,7 @@ from . pmaps          import calibration_gains
 from . pmaps          import create_pmap
 from . pmaps          import find_peaks
 from . pmaps          import get_sensor_ids
+from . pmaps          import main
 from . pmaps          import read_wfms
 from . pmaps          import select_windows
 
@@ -217,6 +218,52 @@ def test_calibration_gains_follow_waveform_channel_order():
     gains = calibration_gains(Detector.pColina, -1, [11, 10])
 
     assert_array_equal(gains, [1., 1.])
+
+
+def test_main_stores_event_numbers_in_pmaps_events(tmp_path):
+    input_file = tmp_path / "waveforms.h5"
+    amplitudes = np.zeros((2, 4, 20))
+    amplitudes[:, :, 5:8] = -5   # pulse recorded as a negative dip
+    channels = np.array([1, 2, 3, 4])
+    events   = np.array([100, 101])
+    with tb.open_file(input_file, "w") as h5out:
+        group = h5out.create_group("/", "Waveforms")
+        h5out.create_array(group, "adcs", amplitudes)
+        h5out.create_array(group, "channel_id", channels)
+        h5out.create_array(group, "event_id", events)
+
+    config_file = tmp_path / "pmaps.conf"
+    config_file.write_text(dedent("""
+        detector = pColina
+        sampling_time = 16 * nanosecond
+
+        s1_min_samples = 1
+        s1_max_samples = 20
+        s1_min_time = 0 * microsecond
+        s1_max_time = 1 * microsecond
+        s1_threshold = 2
+        s1_holdon = 1
+        s1_padding = 0
+
+        s2_min_samples = 1
+        s2_max_samples = 20
+        s2_min_time = 0 * microsecond
+        s2_max_time = 1 * microsecond
+        s2_threshold = 100
+        s2_holdon = 1
+        s2_padding = 0
+    """))
+
+    output_file = tmp_path / "pmaps.h5"
+    main(["-i", str(input_file),
+          "-o", str(output_file),
+          "-c", str(config_file),
+          "-r", "0"])
+
+    with tb.open_file(output_file) as h5out:
+        assert_array_equal(h5out.root.PMaps.events.col("event"), events)
+        assert set(h5out.root.PMaps.S1.col("event")) == set(events.tolist())
+        assert h5out.root.PMaps.S2.nrows == 0
 
 
 def test_get_sensor_ids_maps_channels_in_input_order():

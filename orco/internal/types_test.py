@@ -9,6 +9,7 @@ from pytest import raises
 from .exceptions import InvalidIndexRange
 from .exceptions import InvalidRange
 from .exceptions import InvalidShape
+from .types      import ClosedInterval
 from .types      import IndexRange
 from .types      import Interval
 from .types      import Waveforms
@@ -52,6 +53,43 @@ def test_range_accepts_empty_and_negative_float_bounds():
 def test_range_rejects_reversed_bounds():
     with raises(InvalidRange, match="exceed"):
         Interval(3.0, 1.0)
+
+
+def test_closed_interval_includes_both_bounds():
+    interval = ClosedInterval(1.5, 3.0)
+    assert 1.5 in interval
+    assert 3.0 in interval
+    assert 2.0 in interval
+
+
+def test_closed_interval_excludes_values_outside_bounds():
+    interval = ClosedInterval(1.5, 3.0)
+    assert 1.4 not in interval
+    assert 3.1 not in interval
+
+
+def test_closed_interval_single_point_is_not_empty():
+    interval = ClosedInterval(2.0, 2.0)
+    assert 2.0 in interval
+    assert 1.999 not in interval
+    assert interval.length == 0
+    assert Interval(2.0, 2.0) != interval
+
+
+def test_closed_interval_accepts_float_and_negative_bounds():
+    interval = ClosedInterval(-5.0, -2.0)
+    assert interval.lower == -5.0
+    assert interval.upper == -2.0
+    assert -5.0 in interval
+    assert -2.0 in interval
+    assert -3.0 in interval
+    assert -5.1 not in interval
+    assert -1.9 not in interval
+
+
+def test_closed_interval_rejects_reversed_bounds():
+    with raises(InvalidRange, match="exceed"):
+        ClosedInterval(3.0, 1.0)
 
 
 def test_waveforms_accepts_consistent_shapes():

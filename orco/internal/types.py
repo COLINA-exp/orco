@@ -51,6 +51,16 @@ class Interval(Range[float]):
 
 
 @dataclass(frozen=True, slots=True)
+class ClosedInterval(Range[float]):
+    """
+    A validated closed range of real values ``[lower, upper]``.
+    """
+
+    def __contains__(self, value: float) -> bool:
+        return self.lower <= value <= self.upper
+
+
+@dataclass(frozen=True, slots=True)
 class IndexRange(Range[int]):
     """
     A validated half-open index range ``[lower, upper)`` with non-negative

@@ -201,10 +201,11 @@ def load_sensor_position(detector: Detector, run_number: int) -> pd.DataFrame:
             FirstRun,
             LastRun,
             SensorID,
-            Type,
+            Plane,
             X,
             Y,
-            Z
+            Z,
+            Type
         FROM SensorPosition
         WHERE FirstRun <= :run_number
           AND (LastRun IS NULL OR :run_number <= LastRun)

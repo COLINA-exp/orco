@@ -72,18 +72,19 @@ def create_database(filename):
                     FirstRun  INT,
                     LastRun   INT,
                     SensorID  INT,
-                    Type      TEXT,
+                    Plane     TEXT,
                     X         DOUBLE,
                     Y         DOUBLE,
-                    Z         DOUBLE
+                    Z         DOUBLE,
+                    Type      TEXT
                 )
             """)
             connection.executemany("""
-                INSERT INTO SensorPosition VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, ((-1,   -1, 10, "S13370", 1.0, 2.0, 3.0),
-                  ( 0,   10, 11, "S13370", 4.0, 5.0, 6.0),
-                  ( 5,    5, 12, "S13370", 7.0, 8.0, 9.0),
-                  ( 0, None, 13, "S13370", 1.5, 2.5, 3.5)))
+                INSERT INTO SensorPosition VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, ((-1,   -1, 10, "FP", 1.0, 2.0, 3.0, "S13370"),
+                  ( 0,   10, 11, "FP", 4.0, 5.0, 6.0, "S13370"),
+                  ( 5,    5, 12, "FP", 7.0, 8.0, 9.0, "S13370"),
+                  ( 0, None, 13, "FP", 1.5, 2.5, 3.5, "S13370")))
 
 
 def test_load_sensor_calibration_selects_valid_run_intervals(tmp_path, monkeypatch):
@@ -226,6 +227,9 @@ def test_load_sensor_position_reads_bundled_database():
     assert position.loc[100, ["X", "Y", "Z"]].tolist() == [ 27.9,   3.1, 128.5]
     assert position.loc[124, ["X", "Y", "Z"]].tolist() == [  3.1,  27.9, 128.5]
 
+    assert (position.loc[position.Z < 0, "Plane"] == "NP").all()
+    assert (position.loc[position.Z > 0, "Plane"] == "FP").all()
+
 
 def test_load_sensor_position_reads_run_zero_positions():
     position = load_sensor_position(Detector.pColina, 0)
@@ -240,6 +244,8 @@ def test_load_sensor_position_reads_run_zero_positions():
     assert position.loc[1, ["X", "Y", "Z"]].tolist() == [-3.1,  3.1, -14.0]
     assert position.loc[2, ["X", "Y", "Z"]].tolist() == [ 3.1, -3.1, -14.0]
     assert position.loc[3, ["X", "Y", "Z"]].tolist() == [ 3.1,  3.1, -14.0]
+
+    assert (position.Plane == "NP").all()
 
 
 def test_find_databases_recognizes_sqlite3_extension(tmp_path, monkeypatch):

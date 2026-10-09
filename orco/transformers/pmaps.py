@@ -20,8 +20,8 @@ from ..internal.symbols import Detector
 from ..internal.symbols import all_symbols
 from ..internal.types   import IndexRange
 from ..internal.types   import Waveforms
+from ..internal.units   import reduce_to_internal
 from ..internal.units   import unit_scope
-from ..internal.units   import units
 from ..io.hdf5          import df_writer
 from ..reco.waveforms   import calibrate
 from ..reco.waveforms   import find_windows
@@ -67,13 +67,15 @@ class PMapConfig:
         with open(filename) as file:
             exec(file.read(), scope)
 
-        s1_vars = { key[3:] : value for key, value in scope.items() if key.startswith("s1_") }
-        s2_vars = { key[3:] : value for key, value in scope.items() if key.startswith("s2_") }
+        s1_vars = { key[3:] : reduce_to_internal(value) for key, value in scope.items() if key.startswith("s1_") }
+        s2_vars = { key[3:] : reduce_to_internal(value) for key, value in scope.items() if key.startswith("s2_") }
 
         s1_config = PeakConfig(**s1_vars)
         s2_config = PeakConfig(**s2_vars)
 
-        return cls(s1_config, s2_config, scope["sampling_time"], scope["detector"])
+        return cls(s1_config, s2_config,
+                   reduce_to_internal(scope["sampling_time"]),
+                   scope["detector"])
 
 
 def get_sensor_ids(channels       : np.ndarray,
@@ -135,7 +137,6 @@ def read_wfms(input_file     : Path,
             raise RuntimeError("Invalid shape of waveform array")
 
         sensor_ids, keep = get_sensor_ids(channels, channel_mapping)
-        sampling_time = sampling_time.to(units.microsecond).magnitude
         time = np.arange(all_wfms.shape[2]) * sampling_time
         for amplitudes, event in zip(all_wfms, event_id):
             amplitudes = amplitudes[keep]

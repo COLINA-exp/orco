@@ -12,7 +12,6 @@ from pytest import warns
 from ..internal.symbols import Detector
 from ..internal.types import IndexRange
 from ..internal.types import Waveforms
-from ..internal.units import units
 from . pmaps          import PeakConfig
 from . pmaps          import PMapConfig
 from . pmaps          import calibration_gains
@@ -78,13 +77,18 @@ def test_pmap_config_loads_transformer_settings(tmp_path):
 
     config = PMapConfig.load(filename)
 
+    # quantity fields are reduced to the internal system of units
+    # (microseconds for time, plain numbers for counts and thresholds)
     assert config.s1.min_samples == 1
     assert config.s1.max_samples == 10
-    assert config.s1.min_time == 0 * units.microsecond
-    assert config.s1.max_time == 1 * units.microsecond
-    assert config.s2.min_time == 1 * units.microsecond
-    assert config.s2.max_time == 2 * units.microsecond
-    assert config.sampling_time == 16 * units.nanosecond
+    assert config.s1.min_time == 0.0
+    assert config.s1.max_time == 1.0
+    assert config.s1.threshold == 2
+    assert config.s1.holdon == 3
+    assert config.s1.padding == 4
+    assert config.s2.min_time == 1.0
+    assert config.s2.max_time == 2.0
+    assert config.sampling_time == SAMPLING_TIME
     assert config.detector is Detector.pColina
 
 
@@ -182,7 +186,7 @@ def test_read_wfms_yields_waveform_collections(tmp_path):
 
     channel_mapping = pd.DataFrame({"ChannelID": channels,
                                     "SensorID": channels + 1000})
-    sampling_time = 16 * units.nanosecond
+    sampling_time = SAMPLING_TIME
     records = list(read_wfms(filename, channel_mapping, sampling_time))
 
     assert [record["event"] for record in records] == events.tolist()
@@ -205,7 +209,7 @@ def test_read_wfms_warns_and_drops_unknown_channels(tmp_path):
 
     channel_mapping = pd.DataFrame({"ChannelID": [10, 11],
                                     "SensorID": [1010, 1011]})
-    sampling_time = 16 * units.nanosecond
+    sampling_time = SAMPLING_TIME
 
     with warns(UserWarning, match="unknown to the mapping"):
         records = list(read_wfms(filename, channel_mapping, sampling_time))

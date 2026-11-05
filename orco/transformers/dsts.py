@@ -5,7 +5,7 @@ Generate point-like data-summary tables (DSTs) from PMAP files.
 
 from __future__ import annotations
 
-import argparse
+from argparse    import ArgumentParser
 from dataclasses import dataclass
 from pathlib     import Path
 from typing      import Any, Iterator, Mapping, Sequence
@@ -78,10 +78,10 @@ def read_pmaps(input_file: Path) -> Iterator[Mapping[str, Any]]:
 
     for event in events:
         this_evt = lambda df: df.event == event
-        yield dict(event=event,
-                   s1s=s1s.loc[this_evt],
-                   s2s=s2s.loc[this_evt],
-                   sampling_time=sampling_time)
+        yield dict(event         = event,
+                   s1s           = s1s.loc[this_evt],
+                   s2s           = s2s.loc[this_evt],
+                   sampling_time = sampling_time)
 
 
 def sensor_charges(peak: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
@@ -91,8 +91,8 @@ def sensor_charges(peak: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     The charge of a sensor is the sum of its amplitudes over the peak samples.
     """
     sensors    = peak.loc[:, peak.columns.str.startswith("sensor_")]
-    sensor_ids = sensors.columns.str.removeprefix("sensor_").astype(int).values
-    charges    = sensors.values.sum(axis=0)
+    sensor_ids = sensors.columns.str.removeprefix("sensor_").to_numpy(dtype=np.int64)
+    charges    = sensors.to_numpy(dtype=np.float64).sum(axis=0)
     return sensor_ids, charges
 
 
@@ -226,7 +226,7 @@ def empty_peak(sensors: pd.DataFrame) -> pd.DataFrame:
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Generate point-like DSTs from PMAPs")
+    parser = ArgumentParser(description="Generate point-like DSTs from PMAPs")
     parser.add_argument("-i", "--input_file" , type=Path, required=True, help="input PMAP file")
     parser.add_argument("-o", "--output_file", type=Path, required=True, help="output file")
     parser.add_argument("-c", "--config_file", type=Path, required=True, help="configuration file")

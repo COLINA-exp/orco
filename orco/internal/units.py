@@ -95,7 +95,7 @@ def reduce_to_internal(value):
     """
     if isinstance(value, units.Quantity):
         if value.dimensionless:
-            return value.magnitude
+            return value.to(units.dimensionless).magnitude
         target = _compose_target(value.dimensionality)
         if target is None:
             raise DimensionalityError(value.units,

@@ -1,4 +1,5 @@
-import pytest
+from pytest import approx
+from pytest import raises
 
 from pint.errors import DimensionalityError
 
@@ -108,15 +109,15 @@ def test_reduce_to_internal_converts_relative_si_units():
 
 def test_reduce_to_internal_accepts_compound_si_quantities():
     # compound quantities reduce to the internal bases of their dimensions
-    assert reduce_to_internal(2 * units.watt) == pytest.approx(2e-12)
-    assert reduce_to_internal(1 * units.volt) == pytest.approx(1e-12)
-    assert reduce_to_internal(1 * units.joule) == pytest.approx(1e-6)
-    assert reduce_to_internal(1 * units.hertz) == pytest.approx(1e-6)
+    assert reduce_to_internal(2 * units.watt) == approx(2e-12)
+    assert reduce_to_internal(1 * units.volt) == approx(1e-12)
+    assert reduce_to_internal(1 * units.joule) == approx(1e-6)
+    assert reduce_to_internal(1 * units.hertz) == approx(1e-6)
 
     # two spellings of the same physical quantity agree
-    assert reduce_to_internal(1 * units.joule) == pytest.approx(
+    assert reduce_to_internal(1 * units.joule) == approx(
         reduce_to_internal(1 * units.newton * units.meter))
-    assert reduce_to_internal(1 * units.watt) == pytest.approx(
+    assert reduce_to_internal(1 * units.watt) == approx(
         reduce_to_internal(1 * units.volt * units.ampere))
 
 
@@ -124,11 +125,11 @@ def test_reduce_to_internal_accepts_dimensionless_quantities():
     # dimensionless ratios are converted to canonical units before reading
     # their magnitude
     assert reduce_to_internal((3 * units.millisecond) / (1 * units.millisecond)) == 3
-    assert reduce_to_internal((1 * units.millisecond) / (16 * units.nanosecond)) == pytest.approx(62500)
+    assert reduce_to_internal((1 * units.millisecond) / (16 * units.nanosecond)) == approx(62500)
 
 
 def test_reduce_to_internal_rejects_undeclared_dimensions():
     # a bespoke dimension has no internal base unit
     units.define("wibble = [undefined_quantity]")
-    with pytest.raises(DimensionalityError):
+    with raises(DimensionalityError):
         reduce_to_internal(5 * units.wibble)

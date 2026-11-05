@@ -67,16 +67,21 @@ class DstConfig:
 
 def read_pmaps(input_file: Path) -> Iterator[Mapping[str, Any]]:
     """
-    Yield event numbers together with their S1 and S2 peak tables.
+    Yield the sampling interval, event numbers and their S1 and S2 peak tables.
     """
     with tb.open_file(input_file) as infile:
+        sampling_time = infile.root._v_attrs.sampling_time_microseconds
+
         events = infile.root.PMaps.events.read()["event"]
         s1s    = pd.DataFrame(infile.root.PMaps.S1.read(), columns=infile.root.PMaps.S1.colnames)
         s2s    = pd.DataFrame(infile.root.PMaps.S2.read(), columns=infile.root.PMaps.S2.colnames)
 
     for event in events:
         this_evt = lambda df: df.event == event
-        yield dict(event=event, s1s=s1s.loc[this_evt], s2s=s2s.loc[this_evt])
+        yield dict(event=event,
+                   s1s=s1s.loc[this_evt],
+                   s2s=s2s.loc[this_evt],
+                   sampling_time=sampling_time)
 
 
 def sensor_charges(peak: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
@@ -104,7 +109,8 @@ def sensor_multiplicity(peak      : pd.DataFrame,
 
 def summarize_peak(peak     : pd.DataFrame,
                    threshold: float,
-                   ids_np   : Sequence) -> pd.Series:
+                   ids_np   : Sequence,
+                   sampling_time: float) -> pd.Series:
     """
     Summarize a single peak into a series of selection properties.
 
@@ -112,10 +118,8 @@ def summarize_peak(peak     : pd.DataFrame,
     still be matched to the other plane without contributing a position.
     """
     ok = np.nansum(peak.summed) > 0
-    # TODO: one-sample peaks assume the 16 ns default sampling time
-    dt = np.diff(peak.time)[0] if len(peak) > 1 else 16e-3
     return pd.Series(dict(
-        width        = len(peak) * dt                               if ok else np.nan,
+        width        = len(peak) * sampling_time                    if ok else np.nan,
         height       = peak.summed.max()                            if ok else np.nan,
         time         = peak.time.loc[peak.summed.idxmax()]          if ok else np.nan,
         integral     = peak.summed.sum()                            if ok else np.nan,
@@ -125,7 +129,8 @@ def summarize_peak(peak     : pd.DataFrame,
 
 def blame_peaks(peaks : pd.DataFrame,
                 config: PeakPropertiesConfig,
-                ids_np: Sequence) -> pd.DataFrame:
+                ids_np: Sequence,
+                sampling_time: float) -> pd.DataFrame:
     """
     Return a table of peak numbers rejected by ``config`` with their blame.
 
@@ -136,7 +141,7 @@ def blame_peaks(peaks : pd.DataFrame,
     blame_records = []
     for pkno, peak in peaks.groupby("peak"):
         blame = []
-        summary = summarize_peak(peak, config.threshold, ids_np)
+        summary = summarize_peak(peak, config.threshold, ids_np, sampling_time)
 
         if summary.width        not in config.width       : blame.append("width")
         if summary.height       not in config.height      : blame.append("height")
@@ -242,8 +247,8 @@ def main(argv=None):
             if args.n_events >= 0 and i >= args.n_events:
                 break
 
-            blame_s1s = blame_peaks(data["s1s"], config.s1_props, ids_np)
-            blame_s2s = blame_peaks(data["s2s"], config.s2_props, ids_np)
+            blame_s1s = blame_peaks(data["s1s"], config.s1_props, ids_np, data["sampling_time"])
+            blame_s2s = blame_peaks(data["s2s"], config.s2_props, ids_np, data["sampling_time"])
             blame_s1s.insert(0, "event", data["event"])
             blame_s2s.insert(0, "event", data["event"])
             df_writer(outfile, blame_s1s, "DST", "S1Blame")
@@ -265,8 +270,8 @@ def main(argv=None):
                 for s2no, s2 in s2s.groupby("peak"):
                     x, y = peak_barycenter(s2, sensors_np, config.s2_props.threshold)
 
-                    s1_summary = summarize_peak(s1, config.s1_props.threshold, ids_np).add_prefix("s1_")
-                    s2_summary = summarize_peak(s2, config.s2_props.threshold, ids_np).add_prefix("s2_")
+                    s1_summary = summarize_peak(s1, config.s1_props.threshold, ids_np, data["sampling_time"]).add_prefix("s1_")
+                    s2_summary = summarize_peak(s2, config.s2_props.threshold, ids_np, data["sampling_time"]).add_prefix("s2_")
 
                     row = pd.concat([s1_summary.to_frame().T, s2_summary.to_frame().T], axis=1)
                     row.insert(0, "event", data["event"])

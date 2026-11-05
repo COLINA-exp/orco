@@ -121,8 +121,10 @@ def test_reduce_to_internal_accepts_compound_si_quantities():
 
 
 def test_reduce_to_internal_accepts_dimensionless_quantities():
-    # a dimensionless ratio is a plain number, its base is 1
+    # dimensionless ratios are converted to canonical units before reading
+    # their magnitude
     assert reduce_to_internal((3 * units.millisecond) / (1 * units.millisecond)) == 3
+    assert reduce_to_internal((1 * units.millisecond) / (16 * units.nanosecond)) == pytest.approx(62500)
 
 
 def test_reduce_to_internal_rejects_undeclared_dimensions():

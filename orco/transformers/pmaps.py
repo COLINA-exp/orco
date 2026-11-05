@@ -242,6 +242,8 @@ def main(argv=None):
     config = PMapConfig.load(args.config_file)
     mapping = load_channel_mapping(config.detector, args.run_number)
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
+        outfile.root._v_attrs.sampling_time_microseconds = config.sampling_time
+
         for i, data in enumerate(read_wfms(args.input_file, mapping, config.sampling_time)):
             if args.n_events >= 0 and i >= args.n_events:
                 break

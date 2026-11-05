@@ -265,6 +265,7 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path):
           "-r", "0"])
 
     with tb.open_file(output_file) as h5out:
+        assert h5out.root._v_attrs.sampling_time_microseconds == SAMPLING_TIME
         assert_array_equal(h5out.root.PMaps.events.col("event"), events)
         assert set(h5out.root.PMaps.S1.col("event")) == set(events.tolist())
         assert h5out.root.PMaps.S2.nrows == 0

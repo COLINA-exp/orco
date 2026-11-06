@@ -241,6 +241,9 @@ def main(argv=None):
     if args.n_events < -1:
         parser.error("--n-events must be -1 or non-negative")
 
+    if args.input_file.resolve() == args.output_file.resolve():
+        parser.error("input and output files must be different")
+
     config = PMapConfig.load(args.config_file)
     mapping = load_channel_mapping(config.detector, args.run_number)
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:

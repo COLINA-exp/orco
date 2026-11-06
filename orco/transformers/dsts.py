@@ -386,6 +386,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.n_events < -1:
         parser.error("--n-events must be -1 or non-negative")
 
+    if args.input_file.resolve() == args.output_file.resolve():
+        parser.error("input and output files must be different")
+
     config     = DstConfig.load(args.config_file)
     sensors    = load_sensor_position(config.detector, args.run_number)
     sensors_np = sensors.loc[sensors.Plane == "NP"]

@@ -88,8 +88,11 @@ class IndexRange(Range[int]):
 class Waveforms:
     """
     A collection of sensor waveforms sharing a sampling-time array.
-    The amplitude array follows ``(channel, sample)`` ordering.
-    Waveforms are stored as floats.
+    The amplitude array follows ``(sensor, sample)`` ordering.
+    Waveforms are stored as floats. Input arrays are copied and marked read-only;
+    attribute assignment is prevented by the frozen dataclass. Time/amplitude
+    units are provided by callers, normally microseconds and calibrated amplitude
+    in reconstruction. There must be at least one sensor and one sample.
 
     Attributes:
         time      : One-dimensional sampling-time array.

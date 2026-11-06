@@ -5,6 +5,9 @@ Utilities for writing pandas dataframes to PyTables tables.
 The first dataframe written to a group/table pair defines the persistent
 table schema. Later writes are appended after their columns and numeric types
 have been checked against that schema.
+
+String fields use fixed-width ASCII bytes, not UTF-8. Numeric checks use NumPy's
+``same_kind`` casting rule, not value-range validation; narrowing may lose data.
 """
 
 import warnings
@@ -72,9 +75,10 @@ def _check_castability(arr: np.recarray, table_types: np.dtype[Any]) -> None:
     Validate that records can be appended to an existing table.
 
     Column order may differ because :func:`df_writer` reorders records before
-    appending. Column names must match, numeric values must be safely castable
-    within the same kind, and oversized strings produce a warning because
-    PyTables will truncate them to the table's fixed width.
+    appending. Column names must match and numeric types must satisfy NumPy's
+    ``same_kind`` casting rule. Narrowing within a kind is allowed without
+    checking values for overflow or precision loss. Oversized strings produce
+    a warning because they are truncated to the table's fixed width.
 
     Raises:
         TableMismatch: If columns or numeric types are incompatible.
@@ -126,6 +130,10 @@ def df_writer(h5out: tb.File,
 
     An empty dataframe still creates the group and table, allowing callers to
     produce a stable output schema even when no rows pass their selection.
+
+    Object columns are expected to contain ASCII strings or bytes. Oversized
+    strings warn and are truncated; choose their width on the first write.
+    Numeric narrowing is allowed within a kind and is not range-checked.
 
     Args:
         h5out: Open PyTables file with write permission.

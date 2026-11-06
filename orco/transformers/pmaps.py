@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""
+Build calibrated waveform slices containing signal (PMaps) from raw HDF5 waveforms.
+
+Each event is baseline-subtracted, polarity-inverted and gain-corrected before
+independent S1/S2 searches in the summed waveform. Output tables retain padded
+peak samples and sensor identifiers; sampling time is stored in microseconds as
+root metadata. See ``docs/configuration.md`` and ``docs/formats.md``.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -126,6 +134,25 @@ def get_sensor_ids(channels       : np.ndarray,
 def read_wfms(input_file     : Path,
               channel_mapping: pd.DataFrame,
               sampling_time  : float) -> Iterator[Mapping[str, Any]]:
+    """
+    Yield raw event waveforms in mapped sensor order.
+
+    Args:
+        input_file: HDF5 file with ``/Waveforms/adcs`` in
+            ``(event, channel, sample)`` order, plus one-dimensional
+            ``channel_id`` and ``event_id`` arrays in that group.
+        channel_mapping: Run-valid dataframe with ``ChannelID`` and ``SensorID``.
+        sampling_time: Sample interval in microseconds; sample zero has time zero.
+
+    Yields:
+        Mappings with ``event`` and ``wfms`` (a ``Waveforms`` instance). Input
+        channels absent from the mapping are dropped with a warning. The input
+        file remains open while the iterator is consumed.
+
+    Raises:
+        RuntimeError: If waveform axes do not match the identifier arrays.
+        ValueError: If a channel required by the mapping is missing.
+    """
     with tb.open_file(input_file) as infile:
         all_wfms = infile.root.Waveforms.adcs
         channels = infile.root.Waveforms.channel_id.read()
@@ -149,6 +176,13 @@ def select_windows(windows: list[IndexRange],
                    min_samples: int,
                    max_samples: int,
                    sampling_time: float) -> list[IndexRange]:
+    """
+    Keep unpadded windows within inclusive length and time limits.
+
+    ``min_time`` and ``max_time`` bound the first and last sample times in
+    microseconds. For ``[lower, upper)`` those times are ``lower * sampling_time``
+    and ``(upper - 1) * sampling_time``. Sample limits apply to ``len(window)``.
+    """
     def ok(window):
         start_time = window.lower       * sampling_time
         end_time   = (window.upper - 1) * sampling_time
@@ -161,6 +195,12 @@ def select_windows(windows: list[IndexRange],
 
 
 def peak_to_df(peak: Waveforms) -> pd.DataFrame:
+    """
+    Convert one waveform slice to per-sample ``time``, ``summed`` and sensor data.
+
+    Sensor columns are named ``sensor_<id>`` with a minimum of three digits.
+    Event and peak identifiers are added by the caller.
+    """
     data = dict(time=peak.time, summed=peak.sum_sensors())
     for c, wf in zip(peak.sensors, peak.amplitudes):
         data[f"sensor_{c:>03}"] = wf
@@ -168,6 +208,12 @@ def peak_to_df(peak: Waveforms) -> pd.DataFrame:
 
 
 def empty_peak_df(sensors: np.ndarray) -> pd.DataFrame:
+    """
+    Return a typed, zero-row peak table for the supplied sensor identifiers.
+
+    Columns are ``peak``, ``time``, ``summed`` and ``sensor_<id>``. This keeps
+    the same schema as a nonempty peak search, without an ``event`` column.
+    """
     # in order to keep the type of each column, we give it a dummy value that we
     # later remove
     data = dict(peak=[0], time=[0.], summed=[0.])
@@ -180,6 +226,14 @@ def empty_peak_df(sensors: np.ndarray) -> pd.DataFrame:
 def find_peaks(wfms         : Waveforms,
                config       : PeakConfig,
                sampling_time: float) -> pd.DataFrame:
+    """
+    Find, select and pad windows in the sum of all waveform sensors.
+
+    Threshold and hold-on define unpadded windows; time and sample limits select
+    them before padding is applied. Returned rows include all padded samples,
+    even if padding causes neighboring peaks to overlap. Peak numbers start at
+    zero; no matches produce a zero-row table with the same columns.
+    """
     windows = find_windows(wfms.sum_sensors(), config.threshold, config.holdon)
     windows = select_windows(windows,
                              config.min_time   , config.max_time,
@@ -200,6 +254,14 @@ def create_pmap(event: int,
                 wfms : Waveforms,
                 gains: np.ndarray,
                 config: PMapConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Reconstruct one event into S1 and S2 sample tables.
+
+    Raw negative-going pulses are median-baseline-subtracted per sensor,
+    inverted, then divided by gains ordered to match ``wfms.sensors``. S1/S2
+    searches are independent. Both returned tables include the event identifier,
+    per-type peak numbers, sample times and calibrated sensor amplitudes.
+    """
     wfms = remove_baseline(wfms)
     wfms = invert_polarity(wfms)
     wfms = calibrate(wfms, gains)
@@ -215,7 +277,10 @@ def create_pmap(event: int,
 
 def calibration_gains(detector: Detector, run_number: int, sensors: np.ndarray) -> np.ndarray:
     """
-    Return gains ordered according to ``sensors``.
+    Return run-valid gains ordered according to the requested sensor IDs.
+
+    ``SensorCalibration.SensorID`` is the lookup key, not electronics ChannelID.
+    A missing sensor raises ``ValueError``; gains are returned as a float array.
     """
     calibration = load_sensor_calibration(detector, run_number).set_index("SensorID")
 

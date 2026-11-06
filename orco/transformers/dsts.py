@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
 Generate point-like data-summary tables (DSTs) from PMAP files.
+
+Peak cuts are applied before event-count cuts. Passing events contribute every
+S1/S2 combination, with S1 multiplicity from FP sensors and S2 multiplicity and
+barycenters from NP sensors. See ``docs/formats.md`` for schemas and units.
 """
 
 from __future__ import annotations
@@ -42,8 +46,8 @@ class PeakPropertiesConfig:
         width: Half-open range for a peak's duration, in microseconds.
         height: Half-open range for the peak's maximum summed amplitude.
         integral: Half-open range for the sum of the peak's summed amplitudes.
-        multiplicity: Inclusive range for the number of near-plane sensors
-            whose charge reaches ``threshold``.
+        multiplicity: Inclusive range for the number of selected-plane sensors
+            whose charge reaches ``threshold`` (FP for S1, NP for S2).
         threshold: Inclusive minimum per-sensor charge for multiplicity.
     """
 
@@ -104,7 +108,9 @@ def read_pmaps(input_file: Path) -> Iterator[Mapping[str, Any]]:
 
     The sampling interval is read from the root ``sampling_time_microseconds``
     HDF5 attribute written by the PMAP transformer. Peak tables retain their
-    stored columns, including ``event`` and ``peak``.
+    stored columns, including ``event`` and ``peak``. Both complete peak tables
+    are loaded into memory and the file is closed before any events are yielded.
+    Events without peaks are still yielded with empty dataframes.
 
     Args:
         input_file: PMAP HDF5 file to read.
@@ -157,10 +163,10 @@ def sensor_multiplicity(peak     : pd.DataFrame,
     Args:
         peak: Rows of one peak, including sensor-amplitude columns.
         threshold: Inclusive minimum charge for a sensor to count.
-        sensors: Sensor to consider. Tipically either near-plane (S2) or far-plane (S1).
+        sensors: Sensor identifiers to consider, typically NP for S2 or FP for S1.
 
     Returns:
-        Number of near-plane sensors whose charge is at least ``threshold``.
+        Number of selected sensors whose charge is at least ``threshold``.
     """
     sensor_ids, charges = sensor_charges(peak)
     sensor_selection    = np.isin(sensor_ids, sensors)
@@ -175,9 +181,12 @@ def summarize_peak(peak         : pd.DataFrame,
     Calculate selection properties for one peak.
 
     - width: the number of samples times ``sampling_time``
-    - height the maximum summed waveform amplitude
-    - integral: the unweighted sum of that waveform over samples (it is not multiplied by ``sampling_time``)
-    - multiplicity counts near-plane sensors at or above the charge threshold.
+    - height: the maximum summed waveform amplitude
+    - time: the sample time of that maximum, choosing the first on a tie
+    - integral: the sample sum, not multiplied by ``sampling_time``
+    - multiplicity: selected sensors at or above the total-charge threshold
+
+    All stored samples, including padding, contribute to these properties.
 
     Peaks with no positive net charge receive ``nan`` for numeric shape
     properties and zero multiplicity, allowing them to be paired without
@@ -187,7 +196,7 @@ def summarize_peak(peak         : pd.DataFrame,
         peak: Rows belonging to a single peak, with ``time``, ``summed`` and
             ``sensor_<id>`` columns.
         threshold: Inclusive per-sensor charge threshold for multiplicity.
-        ids_np: Near-plane sensor identifiers.
+        sensor_ids: Sensor identifiers used for multiplicity (FP for S1, NP for S2).
         sampling_time: Duration of one sample, in microseconds.
 
     Returns:
@@ -220,7 +229,7 @@ def blame_peaks(peaks        : pd.DataFrame,
         peaks: Peak rows with ``peak``, ``time``, ``summed`` and sensor
             amplitude columns.
         config: S1 or S2 selection limits to apply.
-        ids_np: Near-plane sensor identifiers used for multiplicity.
+        sensor_ids: Sensor identifiers used for multiplicity (FP for S1, NP for S2).
         sampling_time: Duration of one sample, in microseconds.
 
     Returns:
@@ -275,7 +284,7 @@ def count_peaks(s1s     : pd.DataFrame,
         s2_range: Allowed inclusive range of S2 peak counts.
 
     Returns:
-        A Series with ``event``, ``s1_count``, ``s2_count`` and a comma-joined
+        A Series with ``s1_count``, ``s2_count`` and a comma-joined
         ``blame`` string (empty when both counts are allowed).
     """
     ns1 = s1s.peak.nunique()

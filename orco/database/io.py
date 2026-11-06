@@ -4,6 +4,14 @@ Functions for reading ORCO calibration data from SQLite databases.
 Calibration rows are selected by an inclusive run-validity interval. A row is
 valid when ``FirstRun <= run_number <= LastRun``. A null ``LastRun`` denotes an
 open-ended interval, in which case only the lower bound is checked.
+
+Databases are discovered beside this module using detector names and the
+``.sqlite3`` extension, and are opened read-only. Calibrations and positions use
+SensorID; ChannelID is only the electronics-channel key in ChannelMapping.
+
+Calibration, mapping and position dataframes are cached by detector/run. Callers
+should copy them before mutation. All valid rows are returned; overlapping run
+ranges are not resolved by selecting a latest version. See ``docs/database.md``.
 """
 
 from contextlib import closing
@@ -23,7 +31,7 @@ DATABASE_DIRECTORY = Path(__file__).parent
 
 def find_databases() -> dict[Detector, Path]:
     """
-    Find SQLite database files in a directory.
+    Find SQLite databases in ``DATABASE_DIRECTORY`` beside this module.
 
     Files are recognized by the ``.sqlite3`` extension. Each filename stem
     must name a detector, ignoring case.
@@ -99,6 +107,9 @@ def load_sensor_calibration(detector: Detector, run_number: int) -> pd.DataFrame
 def load_sensor_count(detector: Detector, run_number: int) -> pd.DataFrame:
     """
     Load the sensor counts valid for a run into a dataframe.
+
+    Columns are ``FirstRun``, ``LastRun``, ``NSensorsNear``, ``NSensorsFar`` and
+    ``NSensorTotal``. Results are ordered by FirstRun and are not cached.
 
     Args:
         detector: Detector whose sensor counts are required.
@@ -179,7 +190,8 @@ def load_sensor_position(detector: Detector, run_number: int) -> pd.DataFrame:
     """
     Load the sensor positions valid for a run into a dataframe.
 
-    Rows are ordered by sensor identifier.
+    Rows are ordered by sensor identifier. ``Plane`` is NP or FP, coordinates
+    ``X``, ``Y``, ``Z`` are in millimeters, and ``Type`` identifies sensor type.
 
     Args:
         detector: Detector whose sensor positions are required.

@@ -1,5 +1,9 @@
 """
 Operations for processing collections of sensor waveforms.
+
+Operations return new ``Waveforms`` instances without modifying the input.
+Window bounds are half-open sample indices; time and amplitude units are carried
+through unchanged rather than converted here.
 """
 
 from typing import Callable, Iterable
@@ -15,6 +19,9 @@ def remove_baseline(wfms  : Waveforms,
                     method: Callable = np.median) -> Waveforms:
     """
     Subtract the baseline from each sensor waveform independently.
+
+    ``method`` reduces a one-dimensional sensor waveform to one baseline value;
+    the default is the median over all samples, including signal samples.
     """
     baselines  = np.apply_along_axis(method, 1, wfms.amplitudes)
     amplitudes = wfms.amplitudes - baselines[:, np.newaxis]
@@ -31,6 +38,10 @@ def invert_polarity(wfms: Waveforms) -> Waveforms:
 def calibrate(wfms: Waveforms, gains: ArrayLike) -> Waveforms:
     """
     Divide each sensor waveform by its corresponding non-zero gain.
+
+    ``gains`` must be one-dimensional and ordered to match ``wfms.sensors``.
+    Wrong length/dimensionality, zero values and NaNs raise ``ValueError``.
+    Infinite gains are allowed; finite waveform amplitudes then become zero.
     """
     gains = np.asarray(gains, dtype=float)
 
@@ -54,6 +65,11 @@ def find_windows(wfsum : ArrayLike,
 
     Two above-threshold regions are joined when the below-threshold gap
     between them contains at most ``holdon`` samples.
+
+    Returns ``IndexRange(first, last + 1)`` for each group, so a Python slice
+    includes both crossing samples and any merged gap. Equality to ``thr``
+    counts as a crossing. An empty waveform or no crossings returns an empty
+    list. Negative hold-on or non-one-dimensional input raises ``ValueError``.
     """
     if holdon < 0:
         raise ValueError("holdon must be non-negative")
@@ -78,6 +94,10 @@ def slice_waveforms(wfms   : Waveforms,
     Slice a waveform collection around validated half-open windows.
 
     Padding is clipped at the boundaries of the original waveform collection.
+
+    Each window must be nonempty and lie within the sample axis; padding must
+    be nonnegative. Violations raise ``ValueError``. Windows are sliced
+    independently, so overlapping padded regions are retained in each result.
     """
     if padding < 0:
         raise ValueError("padding must be non-negative")

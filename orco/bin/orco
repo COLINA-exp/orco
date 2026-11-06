@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""
+Dispatch ``orco TRANSFORMER [ARG ...]`` to a transformer's ``main`` function.
+
+The script is kept inside ``orco/bin`` in both checkouts and installed packages;
+its parent layout makes the enclosing package importable in either location.
+"""
 
 import argparse
 import importlib
@@ -11,6 +17,7 @@ import orco.transformers
 
 
 def transformer_names():
+    """List public transformer modules, excluding private and test modules."""
     return sorted(module.name
                   for module in pkgutil.iter_modules(orco.transformers.__path__)
                   if not module.name.startswith(("_", "test_"))
@@ -18,6 +25,12 @@ def transformer_names():
 
 
 def main(argv=None):
+    """
+    Parse the transformer name and forward remaining arguments unchanged.
+
+    ``argv`` excludes the executable name; None uses the process command line.
+    Help following the transformer name is handled by that transformer's parser.
+    """
     argv = sys.argv[1:] if argv is None else argv
     parser = argparse.ArgumentParser(description="Run an ORCO data transformer", usage="%(prog)s TRANSFORMER [ARG ...]")
     parser.add_argument("transformer", choices=transformer_names(), help="data transformer to run")

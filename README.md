@@ -1,30 +1,94 @@
-# recolina
-Reconstruction toolkit for the COLINA experiment
+# ORCO: Offline Reconstruction for COlina
+
+Two data transformers are available:
+
+- `pmaps`: raw sensor waveforms to calibrated signal slices (aka, peak maps or PMAPs).
+- `dsts`: PMAPs to data summary tables (DSTs) with combined information of each S1-S2 pair.
 
 ## Install with Nix
 
-From the repository root, install the `orco` command into your user profile:
+Nix must have the `nix-command` and `flakes` features enabled. Install the command
+from GitHub; no local clone is required for installation:
 
 ```sh
-nix profile install github:COLINA-exp/recolina#
+nix profile install github:COLINA-exp/recolina#orco
 ```
 
-The installed command accepts a transformer name, for example:
+This will install the `orco` command, which accepts a transformer name:
 
 ```sh
 orco --help
 orco pmaps --help
+orco dsts --help
 ```
 
-The Nix package includes the SQLite database under `orco/database` and opens it
-read-only. The flake currently provides the package for `x86_64-linux`.
+The flake currently supports `x86_64-linux`. It supplies Python and the runtime
+dependencies, and bundles the SQLite database. The installed database is
+read-only; changes require rebuilding the package. Example configurations are
+installed under `share/orco/examples`. They are not loaded automatically and
+are never used as defaults; both transformers still require an explicit `-c`.
+
+## Run a reconstruction
+
+Example config files can be obtained from the installation. Copy them and modify
+them according to your needs. For instance, with the default Nix profile:
+
+```sh
+cp ~/.nix-profile/share/orco/examples/pmaps_mc.conf pmaps.conf
+cp ~/.nix-profile/share/orco/examples/dsts_mc.conf dsts.conf
+chmod u+w pmaps.conf dsts.conf
+```
+
+To run the transformers:
+
+```sh
+orco pmaps -i waveforms.h5 -o pmaps.h5 -c pmaps.conf -r -1
+orco dsts  -i pmaps.h5     -o dsts.h5  -c dsts.conf  -r -1
+```
+
+`-r -1` selects the bundled simulation calibration and geometry. For measured
+data, supply the actual run number and appropriate configurations. Use the same
+detector and run for both stages: PMAPs store sampling time but not run or
+detector provenance, so the DST transformer cannot check this for you.
+
+Both transformers require `-i`, `-o`, `-c` and `-r`. `-n N` limits processing to
+the first `N` input events; the default `-n -1` processes all events. `--quiet`
+suppresses progress messages.
+
+## Reference
+
+- [Configuration](docs/configuration.md): required settings, units and cut
+  boundaries.
+- [File formats and reconstruction](docs/formats.md): input shapes, PMAP/DST
+  schemas, peak pairing and current limitations.
+- [Calibration database](docs/database.md): tables, run ranges, sensor IDs and
+  read-only inspection.
+
+## Development
+
+The first time you enter your copy of the repo, allow `direnv` to read the
+`.envrc` file (`direnv allow`), let it install everything and you are all set.
+
+Runtime modules live in `orco/reco`, `orco/io`, `orco/database` and
+`orco/internal`. Transformer entry points live in `orco/transformers`; each
+exposes `main(argv=None)` and uses package-relative imports. The dispatcher
+discovers transformer modules dynamically, excluding private and test modules.
+When adding a runtime dependency, update `runtimePackages` in `flake.nix` so the
+installed command and isolated test environment receive it too; adding it only
+to the development shell is not sufficient.
 
 ## Tests
 
 Run the test suite in the development environment:
 
 ```sh
-nix develop --command pytest -q -W error
+pytest
 ```
 
 `nix flake check` also runs the test suite in an isolated Nix build.
+
+The test files are located next to their modules and named `*_test.py`. Tests use
+pytest's `tmp_path` fixture for temporary files rather than modifying the bundled
+database.
+
+See [LICENSE](LICENSE) for the GNU General Public License, version 3.

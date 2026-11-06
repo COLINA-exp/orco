@@ -1,18 +1,16 @@
 # =============================================================================
 # This flake provides the ORCO command and its Python development environment.
-# Legacy nix-shell support is available through the wrapper in `shell.nix`.
+# The package includes SQLite data and passive example configs under share/orco.
 # =============================================================================
 {
   description = "ORCO reconstruction toolkit and development environment";
 
   inputs = {
     # Version pinning is managed in flake.lock.
-    # Upgrading can be done with `nix flake lock --update input <input-name>`
-    #
-    #    nix flake lock --update-input nixpkgs
-    nixpkgs.url      = "github:nixos/nixpkgs/nixos-25.05"; # nix flake lock --update input nixpkgs
+    # Update the lock deliberately and run the test/build checks afterwards.
+    nixpkgs.url      = "github:nixos/nixpkgs/nixos-25.05";
     flake-utils.url  = "github:numtide/flake-utils";
-    # Support for legacy nix-shell
+    # Compatibility input; no legacy shell.nix wrapper is currently provided.
     flake-compat = {
       url   = "github:edolstra/flake-compat";
       flake = false;

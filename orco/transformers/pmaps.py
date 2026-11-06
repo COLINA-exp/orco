@@ -234,6 +234,8 @@ def main(argv=None):
     parser.add_argument("-c", "--config_file", type=Path, required=True, help="configuration file")
     parser.add_argument("-r", "--run-number" , type=int , required=True, help="run number")
     parser.add_argument("-n", "--n-events"   , type=int , default =-1  , help="number of events to process")
+    parser.add_argument("--quiet", action="store_true")
+
     args = parser.parse_args(argv)
 
     if args.n_events < -1:
@@ -245,6 +247,8 @@ def main(argv=None):
         outfile.root._v_attrs.sampling_time_microseconds = config.sampling_time
 
         for i, data in enumerate(read_wfms(args.input_file, mapping, config.sampling_time)):
+            if not args.quiet:
+                print(f"\rProcessing event {i:>05}", end="", flush=True)
             if args.n_events >= 0 and i >= args.n_events:
                 break
 
@@ -256,6 +260,8 @@ def main(argv=None):
             df_writer(outfile, s1s, "PMaps", "S1")
             df_writer(outfile, s2s, "PMaps", "S2")
 
+    if not args.quiet:
+        print(f"\rFinished processing {i+1} events" + " "*20)
 
 if __name__ == "__main__":
     main()

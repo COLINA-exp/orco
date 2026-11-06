@@ -383,6 +383,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("-c", "--config_file", type=Path, required=True, help="configuration file")
     parser.add_argument("-r", "--run-number" , type=int , required=True, help="run number")
     parser.add_argument("-n", "--n-events"   , type=int , default =-1  , help="number of events to process")
+    parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
 
     if args.n_events < -1:
@@ -395,6 +396,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
         for i, data in enumerate(read_pmaps(args.input_file)):
+            if not args.quiet:
+                print(f"\rProcessing event {i:>05}", end="", flush=True)
+
             if args.n_events >= 0 and i >= args.n_events:
                 break
 
@@ -437,6 +441,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 dsts = pd.concat(rows, ignore_index=True)
                 df_writer(outfile, dsts, "DST", "Pointlike")
 
+    if not args.quiet:
+        print(f"\rFinished processing {i+1} events" + " "*20)
 
 if __name__ == "__main__":
     main()

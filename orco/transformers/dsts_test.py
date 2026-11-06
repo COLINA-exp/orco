@@ -84,7 +84,7 @@ def test_summarize_peak_uses_file_sampling_time_and_sensor_charges():
                          "sensor_002": [10.0, 0.0, 1.0],
                          "sensor_003": [1.0, 1.0, 1.0]})
 
-    summary = summarize_peak(peak, threshold=2, ids_np=[1, 3], sampling_time=0.032)
+    summary = summarize_peak(peak, threshold=2, sensor_ids=[1, 3], sampling_time=0.032)
 
     assert summary.width == approx(3 * 0.032)
     assert summary.height == 5
@@ -98,7 +98,7 @@ def test_summarize_peak_with_no_charge_has_undefined_properties():
                          "summed": [0.0, 0.0],
                          "sensor_001": [0.0, 0.0]})
 
-    summary = summarize_peak(peak, threshold=1, ids_np=[1], sampling_time=0.032)
+    summary = summarize_peak(peak, threshold=1, sensor_ids=[1], sampling_time=0.032)
 
     assert np.isnan(summary.width)
     assert np.isnan(summary.height)
@@ -112,7 +112,7 @@ def test_sensor_multiplicity_sums_sensor_charge_over_peak_samples():
                          "sensor_002": [1.0, 1.0],
                          "sensor_003": [4.0, 0.0]})
 
-    assert sensor_multiplicity(peak, threshold=2, sensors_np=[1, 2]) == 1
+    assert sensor_multiplicity(peak, threshold=2, sensors=[1, 2]) == 1
 
 
 def test_blame_peaks_reports_failed_properties_and_filter_removes_them():
@@ -125,7 +125,7 @@ def test_blame_peaks_reports_failed_properties_and_filter_removes_them():
                                     integral=Interval(4, 6),
                                     multiplicity=ClosedInterval(1, 1))
 
-    blame = blame_peaks(peaks, config, ids_np=[1], sampling_time=0.5)
+    blame = blame_peaks(peaks, config, sensor_ids=[1], sampling_time=0.5)
     selected = filter_peaks(peaks, blame)
 
     assert blame.to_dict("records") == [
@@ -141,7 +141,7 @@ def test_blame_peaks_preserves_schema_when_no_peaks_are_rejected():
                           "summed": [2.0],
                           "sensor_001": [2.0]})
 
-    blame = blame_peaks(peaks, peak_properties_config(), ids_np=[1], sampling_time=0.5)
+    blame = blame_peaks(peaks, peak_properties_config(), sensor_ids=[1], sampling_time=0.5)
 
     assert blame.empty
     assert blame.columns.tolist() == ["peak", "blame"]

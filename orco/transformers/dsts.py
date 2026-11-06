@@ -147,28 +147,28 @@ def sensor_charges(peak: pd.DataFrame) -> tuple[NDArray[np.int64], NDArray[np.fl
     return sensor_ids, charges
 
 
-def sensor_multiplicity(peak      : pd.DataFrame,
-                        threshold : float,
-                        sensors_np: ArrayLike) -> int:
+def sensor_multiplicity(peak     : pd.DataFrame,
+                        threshold: float,
+                        sensors  : ArrayLike) -> int:
     """
-    Count near-plane sensors whose total peak charge reaches ``threshold``.
+    Count sensors whose total peak charge reaches ``threshold``.
 
     Args:
         peak: Rows of one peak, including sensor-amplitude columns.
         threshold: Inclusive minimum charge for a sensor to count.
-        sensors_np: Sensor identifiers belonging to the near plane.
+        sensors: Sensor to consider. Tipically either near-plane (S2) or far-plane (S1).
 
     Returns:
         Number of near-plane sensors whose charge is at least ``threshold``.
     """
     sensor_ids, charges = sensor_charges(peak)
-    in_np = np.isin(sensor_ids, sensors_np)
-    return int(np.count_nonzero(charges[in_np] >= threshold))
+    sensor_selection    = np.isin(sensor_ids, sensors)
+    return int(np.count_nonzero(charges[sensor_selection] >= threshold))
 
 
-def summarize_peak(peak     : pd.DataFrame,
-                   threshold: float,
-                   ids_np   : ArrayLike,
+def summarize_peak(peak         : pd.DataFrame,
+                   threshold    : float,
+                   sensor_ids   : ArrayLike,
                    sampling_time: float) -> pd.Series:
     """
     Calculate selection properties for one peak.
@@ -195,17 +195,17 @@ def summarize_peak(peak     : pd.DataFrame,
     """
     ok = np.nansum(peak.summed) > 0
     return pd.Series(dict(
-        width        = len(peak) * sampling_time                    if ok else np.nan,
-        height       = peak.summed.max()                            if ok else np.nan,
-        time         = peak.time.loc[peak.summed.idxmax()]          if ok else np.nan,
-        integral     = peak.summed.sum()                            if ok else np.nan,
-        multiplicity = sensor_multiplicity(peak, threshold, ids_np) if ok else 0,
+        width        = len(peak) * sampling_time                        if ok else np.nan,
+        height       = peak.summed.max()                                if ok else np.nan,
+        time         = peak.time.loc[peak.summed.idxmax()]              if ok else np.nan,
+        integral     = peak.summed.sum()                                if ok else np.nan,
+        multiplicity = sensor_multiplicity(peak, threshold, sensor_ids) if ok else 0,
     ))
 
 
-def blame_peaks(peaks : pd.DataFrame,
-                config: PeakPropertiesConfig,
-                ids_np: ArrayLike,
+def blame_peaks(peaks        : pd.DataFrame,
+                config       : PeakPropertiesConfig,
+                sensor_ids   : ArrayLike,
                 sampling_time: float) -> pd.DataFrame:
     """
     Return a table of peak numbers rejected by ``config`` with their blame.
@@ -229,8 +229,7 @@ def blame_peaks(peaks : pd.DataFrame,
     blame_records = []
     for pkno, peak in peaks.groupby("peak"):
         blame = []
-        summary = summarize_peak(peak, config.threshold, ids_np, sampling_time)
-
+        summary = summarize_peak(peak, config.threshold, sensor_ids, sampling_time)
         if summary.width        not in config.width       : blame.append("width")
         if summary.height       not in config.height      : blame.append("height")
         if summary.integral     not in config.integral    : blame.append("integral")
@@ -389,7 +388,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     config     = DstConfig.load(args.config_file)
     sensors    = load_sensor_position(config.detector, args.run_number)
     sensors_np = sensors.loc[sensors.Plane == "NP"]
-    ids_np     = sensors_np.SensorID.values
+    sensors_fp = sensors.loc[sensors.Plane == "FP"]
+    ids_np     = sensors_np.SensorID.to_numpy()
+    ids_fp     = sensors_fp.SensorID.to_numpy()
 
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
         for i, data in enumerate(read_pmaps(args.input_file)):
@@ -399,7 +400,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             if args.n_events >= 0 and i >= args.n_events:
                 break
 
-            blame_s1s = blame_peaks(data["s1s"], config.s1_props, ids_np, data["sampling_time"])
+            blame_s1s = blame_peaks(data["s1s"], config.s1_props, ids_fp, data["sampling_time"])
             blame_s2s = blame_peaks(data["s2s"], config.s2_props, ids_np, data["sampling_time"])
             blame_s1s.insert(0, "event", data["event"])
             blame_s2s.insert(0, "event", data["event"])
@@ -423,7 +424,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 for s2no, s2 in s2s.groupby("peak"):
                     x, y = peak_barycenter(s2, sensors_np, config.s2_props.threshold)
 
-                    s1_summary = summarize_peak(s1, config.s1_props.threshold, ids_np, data["sampling_time"]).add_prefix("s1_")
+                    s1_summary = summarize_peak(s1, config.s1_props.threshold, ids_fp, data["sampling_time"]).add_prefix("s1_")
                     s2_summary = summarize_peak(s2, config.s2_props.threshold, ids_np, data["sampling_time"]).add_prefix("s2_")
 
                     row = pd.concat([s1_summary.to_frame().T, s2_summary.to_frame().T], axis=1)

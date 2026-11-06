@@ -23,6 +23,7 @@ from ..internal.types   import Interval
 from ..internal.units   import reduce_to_internal
 from ..internal.units   import unit_scope
 from ..io.hdf5          import df_writer
+from ..io.structures    import dst_types
 
 from typing import Any
 from typing import Iterator
@@ -434,7 +435,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     row["drift_time"] = row.s2_time - row.s1_time
                     row["x"] = x
                     row["y"] = y
-                    rows.append(row)
+                    rows.append(row.astype(dst_types))
 
             if rows:
                 dsts = pd.concat(rows, ignore_index=True)

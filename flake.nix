@@ -53,12 +53,15 @@
             uncertainties
           ]);
 
-          runtimePython = pkgs.python313.withPackages (ps: with ps; [
+          runtimePackages = ps: with ps; [
             numpy
             pandas
             pint
             tables
-          ]);
+          ];
+
+          runtimePython = pkgs.python313.withPackages runtimePackages;
+          testPython = pkgs.python313.withPackages (ps: runtimePackages ps ++ [ ps.pytest ]);
 
           pythonSitePackages = pkgs.python313.sitePackages;
 
@@ -99,6 +102,15 @@
 
         in
           {
+            checks.pytest = pkgs.runCommand "orco-tests" {
+              nativeBuildInputs = [ testPython ];
+            } ''
+              cp -R ${self}/orco ./orco
+              chmod -R u+w ./orco
+              pytest -q -W error orco
+              touch "$out"
+            '';
+
             packages = {
               default = orco;
               inherit orco;

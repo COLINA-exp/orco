@@ -2,8 +2,8 @@ import numpy as np
 
 dst_types = dict(
     event           = np.uint32,
-    s1no            = np.uint16,
-    s2no            = np.uint16,
+    s1no            = np.int16,
+    s2no            = np.int16,
     s1_width        = np.float32,
     s1_height       = np.float32,
     s1_time         = np.float32,

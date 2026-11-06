@@ -415,31 +415,30 @@ def main(argv: Sequence[str] | None = None) -> None:
             peak_counts = pd.concat([pd.Series([data["event"]], index=["event"]), peak_counts])
             df_writer(outfile, pd.DataFrame([peak_counts.to_dict()]), "DST", "EventPeakCount")
 
-            if peak_counts.blame != "": continue
+            if peak_counts.blame == "":
+                if s1s.empty: s1s = empty_peak(sensors)
+                if s2s.empty: s2s = empty_peak(sensors)
 
-            if s1s.empty: s1s = empty_peak(sensors)
-            if s2s.empty: s2s = empty_peak(sensors)
+                rows = []
+                for s1no, s1 in s1s.groupby("peak"):
+                    for s2no, s2 in s2s.groupby("peak"):
+                        x, y = peak_barycenter(s2, sensors_np, config.s2_props.threshold)
 
-            rows = []
-            for s1no, s1 in s1s.groupby("peak"):
-                for s2no, s2 in s2s.groupby("peak"):
-                    x, y = peak_barycenter(s2, sensors_np, config.s2_props.threshold)
+                        s1_summary = summarize_peak(s1, config.s1_props.threshold, ids_fp, data["sampling_time"]).add_prefix("s1_")
+                        s2_summary = summarize_peak(s2, config.s2_props.threshold, ids_np, data["sampling_time"]).add_prefix("s2_")
 
-                    s1_summary = summarize_peak(s1, config.s1_props.threshold, ids_fp, data["sampling_time"]).add_prefix("s1_")
-                    s2_summary = summarize_peak(s2, config.s2_props.threshold, ids_np, data["sampling_time"]).add_prefix("s2_")
+                        row = pd.concat([s1_summary.to_frame().T, s2_summary.to_frame().T], axis=1)
+                        row.insert(0, "event", data["event"])
+                        row.insert(1, "s1no" , s1no)
+                        row.insert(2, "s2no" , s2no)
+                        row["drift_time"] = row.s2_time - row.s1_time
+                        row["x"] = x
+                        row["y"] = y
+                        rows.append(row.astype(dst_types))
 
-                    row = pd.concat([s1_summary.to_frame().T, s2_summary.to_frame().T], axis=1)
-                    row.insert(0, "event", data["event"])
-                    row.insert(1, "s1no" , s1no)
-                    row.insert(2, "s2no" , s2no)
-                    row["drift_time"] = row.s2_time - row.s1_time
-                    row["x"] = x
-                    row["y"] = y
-                    rows.append(row.astype(dst_types))
-
-            if rows:
-                dsts = pd.concat(rows, ignore_index=True)
-                df_writer(outfile, dsts, "DST", "Pointlike")
+                if rows:
+                    dsts = pd.concat(rows, ignore_index=True)
+                    df_writer(outfile, dsts, "DST", "Pointlike")
 
             if args.n_events >= 0 and i+1 >= args.n_events:
                 break

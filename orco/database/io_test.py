@@ -215,17 +215,18 @@ def test_load_sensor_position_reads_bundled_database():
     position = load_sensor_position(Detector.pColina, -1)
 
     assert len(position) == 125
-    assert_array_equal(position.SensorID, range(125))
+    assert_array_equal(position.SensorID,
+                       [n * 1000 + k for n in range(5) for k in range(25)])
     assert_array_equal(position.FirstRun, -1)
     assert_array_equal(position.LastRun , -1)
     assert (position.Type == "S13370").all()
 
     position = position.set_index("SensorID")
-    assert position.loc[0  , ["X", "Y", "Z"]].tolist() == [-12.4, -12.4, -13.5]
-    assert position.loc[24 , ["X", "Y", "Z"]].tolist() == [ 12.4,  12.4, -13.5]
-    assert position.loc[25 , ["X", "Y", "Z"]].tolist() == [ -3.1, -27.9, 128.5]
-    assert position.loc[100, ["X", "Y", "Z"]].tolist() == [ 27.9,   3.1, 128.5]
-    assert position.loc[124, ["X", "Y", "Z"]].tolist() == [  3.1,  27.9, 128.5]
+    assert position.loc[0   , ["X", "Y", "Z"]].tolist() == [-12.4, -12.4, -13.5]
+    assert position.loc[24  , ["X", "Y", "Z"]].tolist() == [ 12.4,  12.4, -13.5]
+    assert position.loc[1000, ["X", "Y", "Z"]].tolist() == [ -3.1, -27.9, 128.5]
+    assert position.loc[4000, ["X", "Y", "Z"]].tolist() == [ 27.9,   3.1, 128.5]
+    assert position.loc[4024, ["X", "Y", "Z"]].tolist() == [  3.1,  27.9, 128.5]
 
     assert (position.loc[position.Z < 0, "Plane"] == "NP").all()
     assert (position.loc[position.Z > 0, "Plane"] == "FP").all()

@@ -405,8 +405,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             blame_s2s = blame_peaks(data["s2s"], config.s2_props, ids_np, data["sampling_time"])
             blame_s1s.insert(0, "event", data["event"])
             blame_s2s.insert(0, "event", data["event"])
-            df_writer(outfile, blame_s1s, "DST", "S1Blame")
-            df_writer(outfile, blame_s2s, "DST", "S2Blame")
+            df_writer(outfile, blame_s1s, "DST", "S1Blame", str_col_length=64)
+            df_writer(outfile, blame_s2s, "DST", "S2Blame", str_col_length=64)
 
             s1s = filter_peaks(data["s1s"], blame_s1s)
             s2s = filter_peaks(data["s2s"], blame_s2s)

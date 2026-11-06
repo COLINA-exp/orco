@@ -398,9 +398,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             if not args.quiet:
                 print(f"\rProcessing event {i:>05}", end="", flush=True)
 
-            if args.n_events >= 0 and i >= args.n_events:
-                break
-
             blame_s1s = blame_peaks(data["s1s"], config.s1_props, ids_fp, data["sampling_time"])
             blame_s2s = blame_peaks(data["s2s"], config.s2_props, ids_np, data["sampling_time"])
             blame_s1s.insert(0, "event", data["event"])
@@ -440,6 +437,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             if rows:
                 dsts = pd.concat(rows, ignore_index=True)
                 df_writer(outfile, dsts, "DST", "Pointlike")
+
+            if args.n_events >= 0 and i+1 >= args.n_events:
+                break
 
     if not args.quiet:
         print(f"\rFinished processing {i+1} events" + " "*20)

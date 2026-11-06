@@ -249,8 +249,6 @@ def main(argv=None):
         for i, data in enumerate(read_wfms(args.input_file, mapping, config.sampling_time)):
             if not args.quiet:
                 print(f"\rProcessing event {i:>05}", end="", flush=True)
-            if args.n_events >= 0 and i >= args.n_events:
-                break
 
             gains    = calibration_gains(config.detector, args.run_number, data["wfms"].sensors)
             s1s, s2s = create_pmap(data["event"], data["wfms"], gains, config)
@@ -259,6 +257,10 @@ def main(argv=None):
             df_writer(outfile, events, "PMaps", "events")
             df_writer(outfile, s1s, "PMaps", "S1")
             df_writer(outfile, s2s, "PMaps", "S2")
+
+            if args.n_events >= 0 and i+1 >= args.n_events:
+                break
+
 
     if not args.quiet:
         print(f"\rFinished processing {i+1} events" + " "*20)

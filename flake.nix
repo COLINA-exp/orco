@@ -1,9 +1,9 @@
 # =============================================================================
-# This flake provides a Python development environment tooling.
+# This flake provides the ORCO command and its Python development environment.
 # Legacy nix-shell support is available through the wrapper in `shell.nix`.
 # =============================================================================
 {
-  description = "RECOLINA development environment";
+  description = "ORCO reconstruction toolkit and development environment";
 
   inputs = {
     # Version pinning is managed in flake.lock.
@@ -53,10 +53,68 @@
             uncertainties
           ]);
 
+          runtimePython = pkgs.python313.withPackages (ps: with ps; [
+            numpy
+            pandas
+            pint
+            tables
+          ]);
+
+          pythonSitePackages = pkgs.python313.sitePackages;
+
+          orco = pkgs.stdenvNoCC.mkDerivation {
+            pname = "orco";
+            version = "0.1.0";
+            src = self;
+            dontUnpack = true;
+            dontBuild = true;
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+
+            installPhase = ''
+              runHook preInstall
+
+              mkdir -p "$out/bin" "$out/${pythonSitePackages}/orco"
+              cp -R "$src/orco/." "$out/${pythonSitePackages}/orco/"
+
+              makeWrapper "${runtimePython}/bin/python" "$out/bin/orco" \
+                --prefix PYTHONPATH : "$out/${pythonSitePackages}" \
+                --add-flags "$out/${pythonSitePackages}/orco/bin/orco"
+
+              "$out/bin/orco" --help >/dev/null
+              "$out/bin/orco" pmaps --help >/dev/null
+              PYTHONPATH="$out/${pythonSitePackages}" "${runtimePython}/bin/python" -c \
+                'from orco.database.io import get_database; from orco.internal.symbols import Detector; assert get_database(Detector.pColina).is_file()'
+
+              runHook postInstall
+            '';
+
+            meta = {
+              description = "Reconstruction toolkit for the COLINA experiment";
+              mainProgram = "orco";
+              platforms = [ "x86_64-linux" ];
+            };
+          };
+
           pyright = pkgs.pyright;
 
         in
           {
+            packages = {
+              default = orco;
+              inherit orco;
+            };
+
+            apps = {
+              default = {
+                type = "app";
+                program = "${orco}/bin/orco";
+              };
+              orco = {
+                type = "app";
+                program = "${orco}/bin/orco";
+              };
+            };
+
             devShell = pkgs.mkShell {
               name = "RECOLINA";
 

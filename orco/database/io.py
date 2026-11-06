@@ -57,7 +57,7 @@ def load_sensor_calibration(detector: Detector, run_number: int) -> pd.DataFrame
     """
     Load sensor calibrations valid for a run into a dataframe.
 
-    Rows are ordered by channel identifier. The returned dataframe contains
+    Rows are ordered by sensor identifier. The returned dataframe contains
     every column from ``SensorCalibration``.
 
     Args:
@@ -79,7 +79,7 @@ def load_sensor_calibration(detector: Detector, run_number: int) -> pd.DataFrame
         SELECT
             FirstRun,
             LastRun,
-            ChannelID,
+            SensorID,
             Gain,
             GainUncertainty,
             Sigma1Pe,
@@ -87,7 +87,7 @@ def load_sensor_calibration(detector: Detector, run_number: int) -> pd.DataFrame
         FROM SensorCalibration
         WHERE FirstRun <= :run_number
           AND (LastRun IS NULL OR :run_number <= LastRun)
-        ORDER BY ChannelID
+        ORDER BY SensorID
     """
 
     with closing(sqlite3.connect(uri, uri=True)) as connection:

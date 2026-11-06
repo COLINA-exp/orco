@@ -218,8 +218,8 @@ def test_read_wfms_warns_and_drops_unknown_channels(tmp_path):
     assert_array_equal(records[0]["wfms"].amplitudes, amplitudes[0, :2])
 
 
-def test_calibration_gains_follow_waveform_channel_order():
-    gains = calibration_gains(Detector.pColina, -1, [11, 10])
+def test_calibration_gains_follow_waveform_sensor_order():
+    gains = calibration_gains(Detector.pColina, -1, [1000, 11])
 
     assert_array_equal(gains, [1., 1.])
 

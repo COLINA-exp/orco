@@ -217,7 +217,7 @@ def calibration_gains(detector: Detector, run_number: int, sensors: np.ndarray) 
     """
     Return gains ordered according to ``sensors``.
     """
-    calibration = load_sensor_calibration(detector, run_number).set_index("ChannelID")
+    calibration = load_sensor_calibration(detector, run_number).set_index("SensorID")
 
     sensors = np.asarray(sensors)
     missing = sensors[~np.isin(sensors, calibration.index)]

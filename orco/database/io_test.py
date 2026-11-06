@@ -22,7 +22,7 @@ def create_database(filename):
                 CREATE TABLE SensorCalibration (
                     FirstRun             INT,
                     LastRun              INT,
-                    ChannelID            INT,
+                    SensorID             INT,
                     Gain                 DOUBLE,
                     GainUncertainty      DOUBLE,
                     Sigma1Pe             DOUBLE,
@@ -94,8 +94,8 @@ def test_load_sensor_calibration_selects_valid_run_intervals(tmp_path, monkeypat
 
     calibration = load_sensor_calibration(Detector.pColina, 5)
 
-    assert calibration.ChannelID.tolist() == [1, 2, 4]
-    assert calibration.Gain     .tolist() == [3.0, 2.0, 5.0]
+    assert calibration.SensorID.tolist() == [1, 2, 4]
+    assert calibration.Gain    .tolist() == [3.0, 2.0, 5.0]
 
 
 def test_load_sensor_calibration_keeps_only_open_interval_after_last_run(tmp_path, monkeypatch):
@@ -105,14 +105,14 @@ def test_load_sensor_calibration_keeps_only_open_interval_after_last_run(tmp_pat
 
     calibration = load_sensor_calibration(Detector.pColina, 11)
 
-    assert calibration.ChannelID.tolist() == [4]
+    assert calibration.SensorID.tolist() == [4]
 
 
 def test_load_sensor_calibration_reads_bundled_database():
     calibration = load_sensor_calibration(Detector.pColina, -1)
 
     assert len(calibration) == 125
-    assert_array_equal(calibration.ChannelID, [n * 1000 + k for n in range(5) for k in range(25)])
+    assert_array_equal(calibration.SensorID, [n * 1000 + k for n in range(5) for k in range(25)])
     assert_array_equal(calibration.FirstRun, -1)
     assert_array_equal(calibration.LastRun , -1)
     assert_array_equal(calibration.Gain    ,  1)

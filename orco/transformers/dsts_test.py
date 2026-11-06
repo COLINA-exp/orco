@@ -157,11 +157,10 @@ def test_count_peaks_checks_inclusive_count_ranges(s1_peaks, s2_peaks, expected_
     s1s = pd.DataFrame({"peak": s1_peaks})
     s2s = pd.DataFrame({"peak": s2_peaks})
 
-    counts = count_peaks(42, s1s, s2s,
+    counts = count_peaks(s1s, s2s,
                          s1_range=ClosedInterval(1, 2),
                          s2_range=ClosedInterval(1, 2))
 
-    assert counts.event == 42
     assert counts.s1_count == len(set(s1_peaks))
     assert counts.s2_count == len(set(s2_peaks))
     assert counts.blame == expected_blame

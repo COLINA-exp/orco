@@ -258,8 +258,7 @@ def filter_peaks(peaks: pd.DataFrame, blame: pd.DataFrame) -> pd.DataFrame:
     return peaks.loc[~peaks.peak.isin(blame.peak)]
 
 
-def count_peaks(event   : int,
-                s1s     : pd.DataFrame,
+def count_peaks(s1s     : pd.DataFrame,
                 s2s     : pd.DataFrame,
                 s1_range: ClosedInterval,
                 s2_range: ClosedInterval) -> pd.Series:
@@ -270,7 +269,6 @@ def count_peaks(event   : int,
     so both configured endpoints are accepted.
 
     Args:
-        event: Event identifier to associate with the result.
         s1s: Selected S1 peak rows.
         s2s: Selected S2 peak rows.
         s1_range: Allowed inclusive range of S1 peak counts.
@@ -286,7 +284,6 @@ def count_peaks(event   : int,
     if ns1 not in s1_range: blame.append("S1")
     if ns2 not in s2_range: blame.append("S2")
     return pd.Series(dict(
-        event    = event,
         s1_count = ns1,
         s2_count = ns2,
         blame    = ", ".join(blame),
@@ -412,7 +409,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             s1s = filter_peaks(data["s1s"], blame_s1s)
             s2s = filter_peaks(data["s2s"], blame_s2s)
 
-            peak_counts = count_peaks(data["event"], s1s, s2s, config.s1_props.count, config.s2_props.count)
+            peak_counts = count_peaks(s1s, s2s, config.s1_props.count, config.s2_props.count)
+            peak_counts = pd.concat([pd.Series([data["event"]], index=["event"]), peak_counts])
             df_writer(outfile, pd.DataFrame([peak_counts.to_dict()]), "DST", "EventPeakCount")
 
             if peak_counts.blame != "": continue

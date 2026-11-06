@@ -77,6 +77,9 @@
               mkdir -p "$out/bin" "$out/${pythonSitePackages}/orco"
               cp -R "$src/orco/." "$out/${pythonSitePackages}/orco/"
 
+              mkdir -p "$out/share/orco/examples"
+              cp "$src"/config/*.conf "$out/share/orco/examples/"
+
               makeWrapper "${runtimePython}/bin/python" "$out/bin/orco" \
                 --prefix PYTHONPATH : "$out/${pythonSitePackages}" \
                 --add-flags "$out/${pythonSitePackages}/orco/bin/orco"

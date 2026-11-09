@@ -44,11 +44,11 @@ class PeakPropertiesConfig:
     Attributes:
         count: Inclusive range for the number of selected peaks per event.
         width: Half-open range for a peak's duration, in microseconds.
-        height: Half-open range for the peak's maximum summed amplitude.
-        integral: Half-open range for the sum of the peak's summed amplitudes.
+        height: Half-open range for the peak's maximum summed amplitude in pe/us.
+        integral: Half-open range for the sample sum times sampling time, in pe.
         multiplicity: Inclusive range for the number of selected-plane sensors
             whose charge reaches ``threshold`` (FP for S1, NP for S2).
-        threshold: Inclusive minimum per-sensor charge for multiplicity.
+        threshold: Inclusive minimum per-sensor charge in pe for multiplicity.
     """
 
     count       : ClosedInterval
@@ -134,41 +134,45 @@ def read_pmaps(input_file: Path) -> Iterator[Mapping[str, Any]]:
                    sampling_time = sampling_time)
 
 
-def sensor_charges(peak: pd.DataFrame) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
+def sensor_charges(peak         : pd.DataFrame,
+                   sampling_time: float) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
     """
     Return sensor identifiers and each sensor's total charge for one peak.
 
     Sensor amplitudes are read from columns named ``sensor_<id>`` and summed
-    over all rows in ``peak``.
+    over all rows in ``peak``, then multiplied by the sampling interval once.
 
     Args:
-        peak: Peak rows with one ``sensor_<id>`` column per sensor.
+        peak: Peak rows with one ``sensor_<id>`` rate column in pe/us per sensor.
+        sampling_time: Duration of one sample, in microseconds.
 
     Returns:
         A pair of arrays containing the sensor identifiers and their summed
-        charges, in matching column order.
+        charges in pe, in matching column order.
     """
     sensors    = peak.loc[:, peak.columns.str.startswith("sensor_")]
     sensor_ids = sensors.columns.str.removeprefix("sensor_").to_numpy(dtype=np.int64)
-    charges    = sensors.to_numpy(dtype=np.float64).sum(axis=0)
+    charges    = sensors.to_numpy(dtype=np.float64).sum(axis=0) * sampling_time
     return sensor_ids, charges
 
 
-def sensor_multiplicity(peak     : pd.DataFrame,
-                        threshold: float,
-                        sensors  : ArrayLike) -> int:
+def sensor_multiplicity(peak         : pd.DataFrame,
+                        threshold    : float,
+                        sensors      : ArrayLike,
+                        sampling_time: float) -> int:
     """
     Count sensors whose total peak charge reaches ``threshold``.
 
     Args:
         peak: Rows of one peak, including sensor-amplitude columns.
-        threshold: Inclusive minimum charge for a sensor to count.
+        threshold: Inclusive minimum charge in pe for a sensor to count.
         sensors: Sensor identifiers to consider, typically NP for S2 or FP for S1.
+        sampling_time: Duration of one sample, in microseconds.
 
     Returns:
         Number of selected sensors whose charge is at least ``threshold``.
     """
-    sensor_ids, charges = sensor_charges(peak)
+    sensor_ids, charges = sensor_charges(peak, sampling_time)
     sensor_selection    = np.isin(sensor_ids, sensors)
     return int(np.count_nonzero(charges[sensor_selection] >= threshold))
 
@@ -181,9 +185,9 @@ def summarize_peak(peak         : pd.DataFrame,
     Calculate selection properties for one peak.
 
     - width: the number of samples times ``sampling_time``
-    - height: the maximum summed waveform amplitude
+    - height: the maximum summed waveform amplitude, in pe/us
     - time: the sample time of that maximum, choosing the first on a tie
-    - integral: the sample sum, not multiplied by ``sampling_time``
+    - integral: the total integrated charge in pe
     - multiplicity: selected sensors at or above the total-charge threshold
 
     All stored samples, including padding, contribute to these properties.
@@ -195,7 +199,7 @@ def summarize_peak(peak         : pd.DataFrame,
     Args:
         peak: Rows belonging to a single peak, with ``time``, ``summed`` and
             ``sensor_<id>`` columns.
-        threshold: Inclusive per-sensor charge threshold for multiplicity.
+        threshold: Inclusive per-sensor charge threshold in pe for multiplicity.
         sensor_ids: Sensor identifiers used for multiplicity (FP for S1, NP for S2).
         sampling_time: Duration of one sample, in microseconds.
 
@@ -205,11 +209,11 @@ def summarize_peak(peak         : pd.DataFrame,
     """
     ok = np.nansum(peak.summed) > 0
     return pd.Series(dict(
-        width        = len(peak) * sampling_time                        if ok else np.nan,
-        height       = peak.summed.max()                                if ok else np.nan,
-        time         = peak.time.loc[peak.summed.idxmax()]              if ok else np.nan,
-        integral     = peak.summed.sum()                                if ok else np.nan,
-        multiplicity = sensor_multiplicity(peak, threshold, sensor_ids) if ok else 0,
+        width        = len(peak) * sampling_time                                       if ok else np.nan,
+        height       = peak.summed.max()                                               if ok else np.nan,
+        time         = peak.time.loc[peak.summed.idxmax()]                             if ok else np.nan,
+        integral     = peak.summed.sum() * sampling_time                               if ok else np.nan,
+        multiplicity = sensor_multiplicity(peak, threshold, sensor_ids, sampling_time) if ok else 0,
     ))
 
 
@@ -325,9 +329,10 @@ def barycenter(x        : NDArray[np.float64],
     return float(np.sum(x * q) / total), float(np.sum(y * q) / total)
 
 
-def peak_barycenter(peak      : pd.DataFrame,
-                    sensors_np: pd.DataFrame,
-                    threshold : float) -> tuple[float, float]:
+def peak_barycenter(peak         : pd.DataFrame,
+                    sensors_np   : pd.DataFrame,
+                    threshold    : float,
+                    sampling_time: float) -> tuple[float, float]:
     """
     Calculate a peak's near-plane position from its sensor charges.
 
@@ -335,13 +340,14 @@ def peak_barycenter(peak      : pd.DataFrame,
         peak: Rows of one peak, with ``sensor_<id>`` amplitude columns.
         sensors_np: Near-plane sensor positions with ``SensorID``, ``X`` and
             ``Y`` columns.
-        threshold: Inclusive minimum total charge for a sensor to contribute.
+        threshold: Inclusive minimum total charge in pe for a sensor to contribute.
+        sampling_time: Duration of one sample, in microseconds.
 
     Returns:
         Charge-weighted ``(x, y)`` coordinates, or ``(nan, nan)`` if no sensor
         reaches the threshold.
     """
-    sensor_ids, charges = sensor_charges(peak)
+    sensor_ids, charges = sensor_charges(peak, sampling_time)
     keep   = np.isin(sensor_ids, sensors_np.SensorID.values)
     ids    = sensor_ids[keep]
     q      = charges[keep]
@@ -431,7 +437,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 rows = []
                 for s1no, s1 in s1s.groupby("peak"):
                     for s2no, s2 in s2s.groupby("peak"):
-                        x, y = peak_barycenter(s2, sensors_np, config.s2_props.threshold)
+                        x, y = peak_barycenter(s2, sensors_np, config.s2_props.threshold, data["sampling_time"])
 
                         s1_summary = summarize_peak(s1, config.s1_props.threshold, ids_fp, data["sampling_time"]).add_prefix("s1_")
                         s2_summary = summarize_peak(s2, config.s2_props.threshold, ids_np, data["sampling_time"]).add_prefix("s2_")

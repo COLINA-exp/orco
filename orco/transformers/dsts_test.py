@@ -9,7 +9,9 @@ from pytest import mark
 
 from ..internal.types import ClosedInterval
 from ..internal.types import Interval
+from ..internal.types import Waveforms
 from ..io.hdf5 import df_writer
+from ..reco.waveforms import calibrate
 from . import dsts
 from .dsts import DstConfig
 from .dsts import PeakPropertiesConfig
@@ -20,6 +22,7 @@ from .dsts import empty_peak
 from .dsts import filter_peaks
 from .dsts import peak_barycenter
 from .dsts import read_pmaps
+from .dsts import sensor_charges
 from .dsts import sensor_multiplicity
 from .dsts import summarize_peak
 
@@ -77,19 +80,20 @@ def test_dst_config_loads_properties_and_units(tmp_path):
     assert config.s2_props.width == Interval(0.3, 2)
 
 
-def test_summarize_peak_uses_file_sampling_time_and_sensor_charges():
+@mark.parametrize("sampling_time", (0.016, 0.032, 0.5, 1.0))
+def test_summarize_peak_uses_file_sampling_time_and_sensor_charges(sampling_time):
     peak = pd.DataFrame({"time": [0.1, 0.2, 0.3],
                          "summed": [3.0, 5.0, 4.0],
                          "sensor_001": [1.0, 2.0, 0.0],
                          "sensor_002": [10.0, 0.0, 1.0],
                          "sensor_003": [1.0, 1.0, 1.0]})
 
-    summary = summarize_peak(peak, threshold=2, sensor_ids=[1, 3], sampling_time=0.032)
+    summary = summarize_peak(peak, threshold=0.04, sensor_ids=[1, 3], sampling_time=sampling_time)
 
-    assert summary.width == approx(3 * 0.032)
+    assert summary.width == approx(3 * sampling_time)
     assert summary.height == 5
     assert summary.time == 0.2
-    assert summary.integral == 12
+    assert summary.integral == approx(12 * sampling_time)
     assert summary.multiplicity == 2
 
 
@@ -112,7 +116,7 @@ def test_sensor_multiplicity_sums_sensor_charge_over_peak_samples():
                          "sensor_002": [1.0, 1.0],
                          "sensor_003": [4.0, 0.0]})
 
-    assert sensor_multiplicity(peak, threshold=2, sensors=[1, 2]) == 1
+    assert sensor_multiplicity(peak, threshold=1, sensors=[1, 2], sampling_time=0.5) == 1
 
 
 def test_blame_peaks_reports_failed_properties_and_filter_removes_them():
@@ -122,7 +126,7 @@ def test_blame_peaks_reports_failed_properties_and_filter_removes_them():
                           "sensor_001": [2.0, 2.0, 0.1]})
     config = peak_properties_config(width=Interval(0.5, 1.1),
                                     height=Interval(2, 4),
-                                    integral=Interval(4, 6),
+                                    integral=Interval(2, 3),
                                     multiplicity=ClosedInterval(1, 1))
 
     blame = blame_peaks(peaks, config, sensor_ids=[1], sampling_time=0.5)
@@ -191,7 +195,7 @@ def test_peak_barycenter_uses_only_near_plane_sensors():
                                "X": [0.0, 10.0],
                                "Y": [5.0, 15.0]})
 
-    x, y = peak_barycenter(peak, sensors_np, threshold=3)
+    x, y = peak_barycenter(peak, sensors_np, threshold=1.5, sampling_time=0.5)
 
     assert x == approx(40 / 7)
     assert y == approx(75 / 7)
@@ -209,12 +213,12 @@ def test_empty_peak_keeps_sensor_schema():
     assert peak.filter(like="sensor_").isna().all().all()
 
 
-def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch):
-    sampling_time = 0.032
+@mark.parametrize("sampling_time", (0.016, 0.032, 0.1))
+def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch, sampling_time):
     input_file = tmp_path / "pmaps.h5"
     peaks = pd.DataFrame({"event": [42, 42],
                           "peak": [0, 0],
-                          "time": [1.0, 1.032],
+                          "time": [1.0, 1.0 + sampling_time],
                           "summed": [2.0, 3.0],
                           "sensor_001": [1.0, 2.0],
                           "sensor_002": [1.0, 2.0]})
@@ -238,7 +242,7 @@ def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch):
         s1_max_integral = 10
         s1_min_multiplicity = 0
         s1_max_multiplicity = 2
-        s1_threshold = 1
+        s1_threshold = 0.04
 
         s2_min_count = 1
         s2_max_count = 1
@@ -250,7 +254,7 @@ def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch):
         s2_max_integral = 10
         s2_min_multiplicity = 0
         s2_max_multiplicity = 2
-        s2_threshold = 1
+        s2_threshold = 0.04
     """))
     sensors = pd.DataFrame({"SensorID": [1, 2],
                             "Plane": ["NP", "NP"],
@@ -276,5 +280,102 @@ def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch):
     assert counts.loc[0, "blame"] == b""
     assert pointlike.loc[0, "s1_width"] == approx(2 * sampling_time)
     assert pointlike.loc[0, "s2_width"] == approx(2 * sampling_time)
+    assert pointlike.loc[0, "s1_integral"] == approx(5 * sampling_time)
+    assert pointlike.loc[0, "s2_integral"] == approx(5 * sampling_time)
+    assert pointlike.loc[0, "s1_multiplicity"] == 0
+    assert pointlike.loc[0, "s2_multiplicity"] == 2
     assert pointlike.loc[0, "x"] == approx(5)
     assert pointlike.loc[0, "y"] == approx(10)
+
+
+@mark.parametrize("sampling_time", (0.016, 0.032, 0.5))
+@mark.parametrize("amplitudes", ((5.0,), (2.0, 3.0)))
+def test_sensor_charges_integrates_single_and_multiple_samples(sampling_time, amplitudes):
+    peak = pd.DataFrame({"sensor_001": amplitudes})
+
+    ids, charges = sensor_charges(peak, sampling_time)
+    summary = summarize_peak(peak.assign(time=np.arange(len(peak)) * sampling_time,
+                                         summed=peak.sensor_001),
+                              threshold=0, sensor_ids=[1], sampling_time=sampling_time)
+
+    assert ids.tolist() == [1]
+    assert charges[0] == approx(sum(amplitudes) * sampling_time)
+    assert summary.integral == approx(charges[0])
+
+
+@mark.parametrize(("sampling_time", "rejected"),
+                  ((0.4, False), (0.5, False), (0.6, True), (1.0, True)))
+def test_integral_cuts_use_time_weighted_charge(sampling_time, rejected):
+    peak = pd.DataFrame(dict(peak=[0, 0], time=[0.0, sampling_time],
+                             summed=[2.0, 3.0], sensor_001=[2.0, 3.0]))
+    config = peak_properties_config(integral=Interval(2, 3))
+
+    blame = blame_peaks(peak, config, sensor_ids=[1], sampling_time=sampling_time)
+
+    assert blame.blame.tolist() == (["integral"] if rejected else [])
+
+
+@mark.parametrize("nsamples", (1, 4, 8))
+def test_equivalent_pulses_have_sampling_independent_charge_and_position(nsamples):
+    sampling_time = 1 / nsamples
+    peak = pd.DataFrame(dict(time=np.arange(nsamples) * sampling_time,
+                             summed=np.full(nsamples, 6.0),
+                             sensor_001=np.full(nsamples, 2.0),
+                             sensor_002=np.full(nsamples, 4.0)))
+    sensors = pd.DataFrame(dict(SensorID=[1, 2], X=[0.0, 10.0], Y=[0.0, 20.0]))
+
+    summary = summarize_peak(peak, threshold=2, sensor_ids=[1, 2], sampling_time=sampling_time)
+    x, y = peak_barycenter(peak, sensors, threshold=2, sampling_time=sampling_time)
+
+    assert summary.integral == approx(6)
+    assert summary.multiplicity == 2
+    assert x == approx(40 / 6)
+    assert y == approx(80 / 6)
+
+
+@mark.parametrize(("sampling_time", "expected_count", "expected_x"),
+                  ((0.25, 0, np.nan), (0.5, 1, 10.0), (1.0, 2, 20 / 3)))
+def test_charge_thresholds_control_multiplicity_and_barycenter(sampling_time, expected_count, expected_x):
+    peak = pd.DataFrame(dict(sensor_001=[1.0], sensor_002=[2.0]))
+    sensors = pd.DataFrame(dict(SensorID=[1, 2], X=[0.0, 10.0], Y=[0.0, 0.0]))
+
+    count = sensor_multiplicity(peak, threshold=1, sensors=[1, 2], sampling_time=sampling_time)
+    x, y = peak_barycenter(peak, sensors, threshold=1, sampling_time=sampling_time)
+
+    assert count == expected_count
+    if expected_count == 0:
+        assert np.isnan(x)
+        assert np.isnan(y)
+    else:
+        assert x == approx(expected_x)
+        assert y == 0
+
+
+def test_single_photoelectron_area_calibrates_to_one_pe():
+    sampling_time = 0.1
+    amplitudes = np.array([[4.0, 6.0]])
+    gain = amplitudes.sum() * sampling_time  # one-pe pulse area, in ADC * us / pe
+    waveforms = Waveforms(np.arange(2) * sampling_time, np.array([1]), amplitudes)
+    calibrated = calibrate(waveforms, [gain])
+    peak = pd.DataFrame(dict(time=calibrated.time, summed=calibrated.sum_sensors(),
+                             sensor_001=calibrated.amplitudes[0]))
+
+    summary = summarize_peak(peak, threshold=1, sensor_ids=[1], sampling_time=sampling_time)
+    _, charges = sensor_charges(peak, sampling_time)
+
+    assert summary.integral == approx(1)
+    assert charges[0] == approx(1)
+    assert summary.multiplicity == 1
+
+
+def test_dummy_peak_keeps_undefined_summary_and_position_after_integration():
+    sensors = pd.DataFrame(dict(SensorID=[1], X=[0.0], Y=[0.0]))
+    peak = empty_peak(sensors)
+
+    summary = summarize_peak(peak, threshold=1, sensor_ids=[1], sampling_time=0.032)
+    x, y = peak_barycenter(peak, sensors, threshold=1, sampling_time=0.032)
+
+    assert np.isnan(summary.integral)
+    assert summary.multiplicity == 0
+    assert np.isnan(x)
+    assert np.isnan(y)

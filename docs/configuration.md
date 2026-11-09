@@ -56,7 +56,7 @@ required twice, with `s1_` and `s2_` prefixes:
 | --- | --- |
 | `min_samples`, `max_samples` | Inclusive limits on the unpadded window length; minimum is at least 1. |
 | `min_time`, `max_time` | Inclusive limits containing the first and last unpadded sample times. |
-| `threshold` | Minimum summed calibrated amplitude for a sample to cross threshold. Equality counts. |
+| `threshold` | Minimum summed calibrated rate in pe/us for a sample to cross threshold. Equality counts. |
 | `holdon` | Maximum number of below-threshold samples between crossings that are merged. Must be nonnegative. |
 | `padding` | Nonnegative number of samples added at both ends after window selection, clipped to waveform bounds. |
 
@@ -79,15 +79,23 @@ Every following key is required with both `s1_` and `s2_` prefixes:
 | --- | --- |
 | `min_count`, `max_count` | Inclusive allowed number of selected peaks per event. |
 | `min_width`, `max_width` | Half-open `[min, max)` range of stored sample count times sampling time. |
-| `min_height`, `max_height` | Half-open range of the maximum `summed` amplitude. |
-| `min_integral`, `max_integral` | Half-open range of the sum of `summed` amplitudes across samples. |
+| `min_height`, `max_height` | Half-open range of the maximum `summed` rate, in pe/us. |
+| `min_integral`, `max_integral` | Half-open range of `sum(summed) * sampling_time`, in pe. |
 | `min_multiplicity`, `max_multiplicity` | Inclusive range of the number of sensors reaching the charge threshold. |
-| `threshold` | Inclusive per-sensor total-charge threshold for multiplicity; also used for the S2 barycenter. |
+| `threshold` | Inclusive per-sensor integrated-charge threshold in pe for multiplicity; also used for the S2 barycenter. |
 
-The integral and sensor charges are sample sums: they are **not multiplied by
-sampling time**. S1 multiplicity uses far-plane (`FP`) sensors; S2 multiplicity
-and position use near-plane (`NP`) sensors. Height and integral still use the
-stored waveform sum across all sensors.
+Gains are defined in ADC * us / pe, so PMAP amplitudes are rates in pe/us.
+Both peak integral and per-sensor charges multiply their sample sums by sampling
+time in microseconds, yielding pe. S1 multiplicity uses far-plane (`FP`) sensors;
+S2 multiplicity and position use near-plane (`NP`) sensors. Height and integral
+use the stored waveform sum across all sensors, including padding.
+
+Existing numeric integral bounds and DST charge thresholds are unchanged and
+now mean pe; they are not automatically rescaled to preserve old selections.
+To preserve an old sample-sum selection at a particular sampling interval,
+multiply its integral bounds and charge thresholds by that interval in
+microseconds. For example, an old threshold of `1` at 16 ns corresponds to
+`0.016` pe. PMAP thresholds and DST height cuts remain rates in pe/us.
 
 Individual peaks are filtered first. Event-count cuts are then applied to the
 remaining peaks. Allowing zero peaks permits dummy peaks with undefined

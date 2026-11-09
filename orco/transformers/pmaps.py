@@ -260,7 +260,8 @@ def create_pmap(event: int,
     Raw negative-going pulses are median-baseline-subtracted per sensor,
     inverted, then divided by gains ordered to match ``wfms.sensors``. S1/S2
     searches are independent. Both returned tables include the event identifier,
-    per-type peak numbers, sample times and calibrated sensor amplitudes.
+    per-type peak numbers, sample times and calibrated sensor rates in pe/us
+    when gains are defined in ADC * us / pe.
     """
     wfms = remove_baseline(wfms)
     wfms = invert_polarity(wfms)
@@ -280,7 +281,8 @@ def calibration_gains(detector: Detector, run_number: int, sensors: np.ndarray) 
     Return run-valid gains ordered according to the requested sensor IDs.
 
     ``SensorCalibration.SensorID`` is the lookup key, not electronics ChannelID.
-    A missing sensor raises ``ValueError``; gains are returned as a float array.
+    Gains are interpreted as ADC * us / pe and returned as a float array.
+    A missing sensor raises ``ValueError``.
     """
     calibration = load_sensor_calibration(detector, run_number).set_index("SensorID")
 

@@ -40,6 +40,8 @@ def calibrate(wfms: Waveforms, gains: ArrayLike) -> Waveforms:
     Divide each sensor waveform by its corresponding non-zero gain.
 
     ``gains`` must be one-dimensional and ordered to match ``wfms.sensors``.
+    With gains in ADC * us / pe, ADC amplitudes become rates in pe/us. Integrate
+    those rates with the sampling interval to obtain charge in pe.
     Wrong length/dimensionality, zero values and NaNs raise ``ValueError``.
     Infinite gains are allowed; finite waveform amplitudes then become zero.
     """

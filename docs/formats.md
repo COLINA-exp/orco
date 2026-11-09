@@ -23,6 +23,11 @@ polarity, and divides by its gain. Raw pulses are therefore expected to be
 negative-going. Gains are looked up by `SensorID` and ordered to match the
 waveforms. Zero and NaN gains are rejected; infinite gains are allowed.
 
+The gain convention is integrated single-photoelectron area in ADC * us / pe.
+Dividing an ADC sample by gain produces a rate in pe/us, not charge per sample.
+The PMAP sensor and `summed` columns retain those rates; integration in the DST
+stage multiplies sample sums by the sampling interval in microseconds.
+
 S1/S2 windows are found independently in the summed calibrated waveform, selected
 by time and sample length, then padded. Time is `sample_index * sampling_time` in
 microseconds. No timestamp array is required in the raw file.
@@ -66,10 +71,13 @@ Point-like rows contain:
 
 Width is stored sample count times sampling time. Height is the maximum summed
 amplitude; time is the sample time of that maximum (the first maximum on a tie).
-Integral is the unweighted sample sum. Multiplicity counts sensors whose summed
-charge is at least the configured threshold, using FP sensors for S1 and NP
-sensors for S2. Barycenter weights are the total charges of NP sensors reaching
-the S2 threshold. If selected total charge is zero, both coordinates are NaN.
+Height is in pe/us. Integral is `sum(summed) * sampling_time`, in pe.
+Per-sensor charges use the same integration rule. Multiplicity counts sensors
+whose integrated charge is at least the configured threshold in pe, using FP
+sensors for S1 and NP sensors for S2. Barycenter weights are integrated charges
+of NP sensors reaching the S2 threshold. The common time factor cancels in the
+weighted-position ratio, but matters for threshold selection. If selected total
+charge is zero, both coordinates are NaN.
 
 Every S1 is paired with every S2: there is no best-match selection, drift-velocity
 conversion to `z`, or temporal ordering cut. Negative drift times are possible.

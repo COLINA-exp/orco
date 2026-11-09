@@ -23,8 +23,12 @@ All tables include `FirstRun` and nullable `LastRun` validity columns.
 
 `ChannelID` identifies an input electronics channel. `SensorID` identifies the
 physical sensor and is used for calibrations, geometry and PMAP sensor columns.
-Position coordinates are in millimeters; `Plane` is `NP` or `FP`. Gains divide
-the baseline-subtracted, polarity-corrected waveforms. Uncertainty and
+Position coordinates are in millimeters; `Plane` is `NP` or `FP`. Gains are
+integrated single-photoelectron areas in ADC * us / pe and divide the
+baseline-subtracted, polarity-corrected ADC waveforms to give rates in pe/us.
+Multiplying a calibrated sample sum by sampling time in microseconds gives pe.
+The database stores bare numeric magnitudes, not unit-bearing quantities.
+Uncertainty and
 single-photoelectron sigma columns are loaded but not currently used by PMAP or
 DST reconstruction. The count loader is available separately; transformers use
 the mapping/position tables rather than `SensorCount` to select sensors.

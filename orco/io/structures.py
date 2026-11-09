@@ -2,8 +2,9 @@
 Persistent dtypes for the ``/DST/Pointlike`` HDF5 table.
 
 Peak identifiers are signed to retain the ``-1`` missing-peak sentinel. Times
-and widths are in microseconds, positions in millimeters, and integrals are
-unweighted sample sums. Floating fields can store NaN for missing properties.
+and widths are in microseconds, positions in millimeters, heights in pe/us and
+integrals in pe. Integrals include the sampling-time factor. Floating fields
+can store NaN for missing properties.
 These types do not define PMAP, blame or event-count tables.
 """
 

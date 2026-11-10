@@ -14,6 +14,8 @@ from pint        import UnitRegistry
 from pint.errors import DimensionalityError
 from pint.errors import UndefinedUnitError
 
+from typing import Annotated
+
 
 units = UnitRegistry()
 units.define("photoelectron = [photoelectron] = pe")
@@ -60,6 +62,10 @@ photoelectron_unit = units.photoelectron
 adc_unit           = units.adc
 count_unit         = 1   # the dimensionless base
 
+Time      = Annotated[float, time_unit]
+Amplitude = Annotated[float, photoelectron_unit / time_unit]
+Charge    = Annotated[float, photoelectron_unit]
+
 
 def _dimension_name(unit):
     """Name (like ``[time]``) of the single dimension spanned by ``unit``."""
@@ -91,7 +97,10 @@ def _compose_target(dimensionality):
 
 def reduce_to_internal(value):
     """
-    Reduce a configuration value to the internal system of units.
+    Reduce a value to the internal system of units without field validation.
+
+    Config loaders use ``config_value`` in ``orco.internal.config`` to check
+    dimensions and require explicit units before discarding them.
 
     Plain numbers and dimensionless quantities are already in the system
     (their base is 1). Every other quantity is reduced to its internal base

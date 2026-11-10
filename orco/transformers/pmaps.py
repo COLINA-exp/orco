@@ -24,11 +24,13 @@ from typing import Any, Iterator, Mapping
 
 from ..database.io      import load_channel_mapping
 from ..database.io      import load_sensor_calibration
+from ..internal.config  import config_from_scope
 from ..internal.symbols import Detector
 from ..internal.symbols import all_symbols
 from ..internal.types   import IndexRange
 from ..internal.types   import Waveforms
-from ..internal.units   import reduce_to_internal
+from ..internal.units   import Amplitude
+from ..internal.units   import Time
 from ..internal.units   import unit_scope
 from ..io.hdf5          import df_writer
 from ..reco.waveforms   import calibrate
@@ -42,9 +44,9 @@ from ..reco.waveforms   import slice_waveforms
 class PeakConfig:
     min_samples: int
     max_samples: int
-    min_time   : float
-    max_time   : float
-    threshold  : float
+    min_time   : Time
+    max_time   : Time
+    threshold  : Amplitude
     holdon     : int
     padding    : int
 
@@ -61,7 +63,7 @@ class PeakConfig:
 class PMapConfig:
     s1           : PeakConfig
     s2           : PeakConfig
-    sampling_time: float
+    sampling_time: Time
     detector     : Detector
 
     def __post_init__(self):
@@ -75,15 +77,9 @@ class PMapConfig:
         with open(filename) as file:
             exec(file.read(), scope)
 
-        s1_vars = { key[3:] : reduce_to_internal(value) for key, value in scope.items() if key.startswith("s1_") }
-        s2_vars = { key[3:] : reduce_to_internal(value) for key, value in scope.items() if key.startswith("s2_") }
-
-        s1_config = PeakConfig(**s1_vars)
-        s2_config = PeakConfig(**s2_vars)
-
-        return cls(s1_config, s2_config,
-                   reduce_to_internal(scope["sampling_time"]),
-                   scope["detector"])
+        return config_from_scope(cls, scope,
+                                 s1=config_from_scope(PeakConfig, scope, prefix="s1_"),
+                                 s2=config_from_scope(PeakConfig, scope, prefix="s2_"))
 
 
 def get_sensor_ids(channels       : np.ndarray,

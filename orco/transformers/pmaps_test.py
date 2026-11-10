@@ -1,4 +1,5 @@
 from textwrap import dedent
+from pathlib import Path
 
 import numpy  as np
 import pandas as pd
@@ -21,9 +22,18 @@ from . pmaps          import get_sensor_ids
 from . pmaps          import main
 from . pmaps          import read_wfms
 from . pmaps          import select_windows
+from . dsts           import DstConfig
 
 
 SAMPLING_TIME = 0.016
+
+
+@mark.parametrize("filename", ("pmaps_mc.conf", "pmaps_run_8.conf",
+                               "pmaps_pcolina_data.conf", "dsts_mc.conf",
+                               "dsts_pcolina_data.conf"))
+def test_example_configs_have_explicit_correct_units(filename):
+    loader = DstConfig if filename.startswith("dsts") else PMapConfig
+    loader.load(Path(__file__).resolve().parents[2] / "config" / filename)
 
 
 def peak_config(**overrides):
@@ -52,7 +62,15 @@ def test_peak_config_rejects_invalid_ranges(overrides):
         peak_config(**overrides)
 
 
-def test_pmap_config_loads_transformer_settings(tmp_path):
+@mark.parametrize(("field", "expression"),
+                  ((None, None),
+                   ("sampling_time", "16"),
+                   ("s1_min_time", "0"),
+                   ("s1_threshold", "2 * pe"),
+                   ("s2_max_time", "1 * adc"),
+                   ("s1_holdon", "5 * microsecond"),
+                   ("s2_padding", "1.5")))
+def test_pmap_config_loads_transformer_settings(tmp_path, field, expression):
     filename = tmp_path / "pmaps.conf"
     filename.write_text(dedent("""
         detector = pColina
@@ -62,7 +80,7 @@ def test_pmap_config_loads_transformer_settings(tmp_path):
         s1_max_samples = 10
         s1_min_time = 0 * microsecond
         s1_max_time = 1000 * nanosecond
-        s1_threshold = 2
+        s1_threshold = 2 * pe / microsecond
         s1_holdon = 3
         s1_padding = 4
 
@@ -70,10 +88,16 @@ def test_pmap_config_loads_transformer_settings(tmp_path):
         s2_max_samples = 20
         s2_min_time = 1 * microsecond
         s2_max_time = 2 * microsecond
-        s2_threshold = 6
+        s2_threshold = 6000 * photoelectron / millisecond
         s2_holdon = 7
         s2_padding = 8
     """))
+
+    if field is not None:
+        filename.write_text(filename.read_text() + f"\n{field} = {expression}\n")
+        with raises(ValueError, match=field):
+            PMapConfig.load(filename)
+        return
 
     config = PMapConfig.load(filename)
 
@@ -88,6 +112,7 @@ def test_pmap_config_loads_transformer_settings(tmp_path):
     assert config.s1.padding == 4
     assert config.s2.min_time == 1.0
     assert config.s2.max_time == 2.0
+    assert config.s2.threshold == 6
     assert config.sampling_time == SAMPLING_TIME
     assert config.detector is Detector.pColina
 
@@ -245,7 +270,7 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path):
         s1_max_samples = 20
         s1_min_time = 0 * microsecond
         s1_max_time = 1 * microsecond
-        s1_threshold = 2
+        s1_threshold = 2 * pe / microsecond
         s1_holdon = 1
         s1_padding = 0
 
@@ -253,7 +278,7 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path):
         s2_max_samples = 20
         s2_min_time = 0 * microsecond
         s2_max_time = 1 * microsecond
-        s2_threshold = 100
+        s2_threshold = 100 * pe / microsecond
         s2_holdon = 1
         s2_padding = 0
     """))

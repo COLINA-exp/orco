@@ -291,7 +291,7 @@ def calibration_gains(detector: Detector, run_number: int, sensors: np.ndarray) 
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Generate PMAPs from COLINA data")
+    parser = argparse.ArgumentParser(prog="orco pmaps", description="Generate PMAPs from COLINA data")
     parser.add_argument("-i", "--input_file" , type=Path, required=True, help="input file")
     parser.add_argument("-o", "--output_file", type=Path, required=True, help="output file")
     parser.add_argument("-c", "--config_file", type=Path, required=True, help="configuration file")

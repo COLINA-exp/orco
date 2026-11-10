@@ -388,7 +388,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         argv: Optional command-line arguments, excluding the program name.
             When omitted, arguments are read from the process command line.
     """
-    parser = ArgumentParser(description="Generate point-like DSTs from PMAPs")
+    parser = ArgumentParser(prog="orco dsts", description="Generate point-like DSTs from PMAPs")
     parser.add_argument("-i", "--input_file" , type=Path, required=True, help="input PMAP file")
     parser.add_argument("-o", "--output_file", type=Path, required=True, help="output file")
     parser.add_argument("-c", "--config_file", type=Path, required=True, help="configuration file")

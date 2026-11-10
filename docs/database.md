@@ -28,6 +28,8 @@ integrated single-photoelectron areas in ADC * us / pe and divide the
 baseline-subtracted, polarity-corrected ADC waveforms to give rates in pe/us.
 Multiplying a calibrated sample sum by sampling time in microseconds gives pe.
 The database stores bare numeric magnitudes, not unit-bearing quantities.
+The Pint registry defines independent `adc` and `pe` dimensions, so the gain
+unit can be expressed as `adc * microsecond / pe` when doing unit-aware arithmetic.
 Uncertainty and
 single-photoelectron sigma columns are loaded but not currently used by PMAP or
 DST reconstruction. The count loader is available separately; transformers use

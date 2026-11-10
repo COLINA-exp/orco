@@ -30,18 +30,77 @@ missing required argument.
 
 Quantities are reduced to ORCO's internal units when the configuration is loaded.
 Time is stored in **microseconds** and length in **millimeters**. The remaining
-SI base dimensions use kilogram, ampere, kelvin, mole and candela. Plain numbers
-are already in internal units. Dimensionless ratios are converted to their
+SI base dimensions use kilogram, ampere, kelvin, mole and candela. Physical config
+fields require explicit quantities, even for zero values. Dimensionless ratios
+are converted to their
 dimensionless magnitude, including any scale factor.
 
-Unit names need no import or `units.` prefix. For example, `200 * ns` becomes
-`0.2` microseconds, while `1 * microsecond` becomes `1`. Counts, hold-on and
-padding are sample counts, not time durations. Thresholds are numeric values in
-the corresponding calibrated amplitude or charge scale.
+Photoelectrons have their own independent dimension, with `photoelectron` as
+the internal base unit and `pe` as an alias. They are neither dimensionless
+counts nor coulombs. Charges reduce to numeric pe and rates to numeric pe/us:
 
-Reduction does not validate a field's physical dimension: use time quantities
-for time fields and integer counts for sample/count fields. Configurations are
-executed independently for each transformer.
+```python
+s1_min_integral = 100 * pe
+s1_min_height = 10 * pe / microsecond
+s1_threshold = 1 * photoelectron
+```
+
+Ratios such as `pe / pe` are dimensionless. Pint rejects conversion from pe to
+an unrelated dimension such as coulombs. Unit-bearing arithmetic can therefore
+distinguish these quantities before reduction. The conversion helper still
+returns plain numbers: units are not carried into waveform arrays or stored
+data. Bare numeric values are rejected for physical configuration fields.
+
+ADC amplitude has a separate independent dimension with internal base `adc`.
+It cannot be converted directly to pe, coulombs or dimensionless counts. Gain
+expressions can use `adc * microsecond / pe`; dividing an amplitude in adc by
+such a gain gives pe/us, and multiplying that rate by time gives pe. For example,
+`20 * adc * nanosecond / pe` reduces to `0.02` in internal gain units.
+Ratios such as `adc / adc` are dimensionless.
+
+Unit names, including `adc`, `pe` and `photoelectron`, need no import or `units.`
+prefix.
+For example, `200 * ns` becomes
+`0.2` microseconds, while `1 * microsecond` becomes `1`. Counts, hold-on and
+padding are dimensionless integers, not time durations. Fractions and booleans
+are rejected for those fields. A dimensionless Pint quantity is accepted only
+if its reduced magnitude is an integer.
+
+Config loaders validate each field against its expected unit before reducing
+it. For example, `s1_min_height = 5 * pe` is invalid because height requires a
+rate; use `5 * pe / microsecond`. A bare `5` is also invalid. Use `0 * microsecond`
+for a zero time bound, not `0`. Errors name the field and expected unit.
+Configurations are executed independently for each transformer. The general
+`reduce_to_internal` helper still supports arbitrary registered dimensions;
+loaders use the annotation-driven reader in `orco/internal/config.py`, which
+calls the stricter `config_value(value, expected_unit, name=...)` helper.
+The registry, unit aliases and general conversion remain in
+`orco/internal/units.py`. Transformer-specific config dataclasses stay beside
+their transformer code.
+
+Expected units are declared beside dataclass fields, not in separate unit maps.
+`Time`, `Amplitude` and `Charge` are shared `Annotated[float, unit]` aliases for
+microseconds, pe/us and pe respectively. `Amplitude` describes a calibrated
+waveform's instantaneous rate, not its integrated charge. For example:
+
+```python
+@dataclass
+class ExampleConfig:
+    min_time: Time
+    threshold: Amplitude
+    padding: int
+```
+
+The shared `config_from_scope` reader resolves these annotations with metadata
+retained. An `Annotated[Interval, unit]` or `Annotated[ClosedInterval, unit]`
+field applies the same unit to its external `min_` and `max_` bounds. Plain `int`
+fields are dimensionless counts. S1/S2 prefixes remain part of the file syntax
+and error messages. Unannotated float fields are rejected, so adding a physical
+field cannot silently bypass validation.
+
+`Annotated` itself performs no runtime checking and introduces no quantity
+objects into the numerical core. Validation belongs to config loading; direct
+dataclass construction continues to accept already converted internal values.
 
 ## PMAP settings
 
@@ -90,8 +149,10 @@ time in microseconds, yielding pe. S1 multiplicity uses far-plane (`FP`) sensors
 S2 multiplicity and position use near-plane (`NP`) sensors. Height and integral
 use the stored waveform sum across all sensors, including padding.
 
-Existing numeric integral bounds and DST charge thresholds are unchanged and
-now mean pe; they are not automatically rescaled to preserve old selections.
+Integral bounds and DST charge thresholds must explicitly include `pe`; height
+bounds and PMAP thresholds must include `pe / microsecond` or a compatible rate.
+The examples retain their numeric cut values, now with explicit units. Cuts are
+not automatically rescaled to preserve older sample-sum selections.
 To preserve an old sample-sum selection at a particular sampling interval,
 multiply its integral bounds and charge thresholds by that interval in
 microseconds. For example, an old threshold of `1` at 16 ns corresponds to

@@ -39,6 +39,11 @@ cp ~/.nix-profile/share/orco/examples/dsts_mc.conf dsts.conf
 chmod u+w pmaps.conf dsts.conf
 ```
 
+Physical settings require explicit units, for example `16 * nanosecond`,
+`100 * pe` or `10 * pe / microsecond`. Bare numbers are accepted only for
+dimensionless integer fields such as counts, hold-on and padding. See the
+[configuration guide](docs/configuration.md#units) for the expected units.
+
 To run the transformers:
 
 ```sh

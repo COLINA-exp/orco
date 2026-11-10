@@ -3,6 +3,11 @@ Physical units used throughout ORCO.
 
 Importing a shared registry ensures that quantities created in different modules
 belong to the same Pint unit system.
+
+Photoelectrons and ADC amplitudes form independent bookkeeping dimensions, not
+aliases for dimensionless counts or electric charge. Configuration quantities
+are reduced to plain numeric magnitudes; arrays and persisted data do not carry
+Pint units.
 """
 
 from pint        import UnitRegistry
@@ -11,14 +16,17 @@ from pint.errors import UndefinedUnitError
 
 
 units = UnitRegistry()
+units.define("photoelectron = [photoelectron] = pe")
+units.define("adc = [adc]")
 
 # --- internal system of units ------------------------------------------------
 #
 # The internal system extends to every quantity of the international system of
-# units: it declares one base quantity per SI dimension, each defined as 1,
-# and every other quantity is expressed relative to it:
+# units, plus independent photoelectron and ADC dimensions: it declares one base
+# quantity per dimension, each defined as 1, and expresses other quantities
+# relative to those bases:
 #
-#     SI quantity          internal base    value of 1
+#     quantity             internal base    value of 1
 #     -------------------- ---------------- ------------------------------
 #     time                 microsecond      1 us (the PMAP time column)
 #     length               millimeter       1 mm (the sensor positions)
@@ -27,7 +35,9 @@ units = UnitRegistry()
 #     temperature          kelvin           1 K
 #     amount of substance  mole             1 mol
 #     luminous intensity   candela          1 cd
-#     dimensionless        --               1 (ADC counts, thresholds, ...)
+#     photoelectron        photoelectron    1 pe (integrated sensor charge)
+#     ADC amplitude        adc              1 adc (raw waveform amplitude)
+#     dimensionless        --               1 (plain counts, ratios, ...)
 #
 # Time and length use the units in which ORCO stores its data (the PMAP time
 # column in microseconds, the sensor positions in millimeters); the remaining
@@ -39,14 +49,16 @@ units = UnitRegistry()
 # base is declared is rejected, since the transformers only understand the
 # internal units.
 
-time_unit        = units.microsecond
-length_unit      = units.millimeter
-mass_unit        = units.kilogram
-current_unit     = units.ampere
-temperature_unit = units.kelvin
-amount_unit      = units.mole
-luminous_unit    = units.candela
-count_unit       = 1   # the dimensionless base
+time_unit          = units.microsecond
+length_unit        = units.millimeter
+mass_unit          = units.kilogram
+current_unit       = units.ampere
+temperature_unit   = units.kelvin
+amount_unit        = units.mole
+luminous_unit      = units.candela
+photoelectron_unit = units.photoelectron
+adc_unit           = units.adc
+count_unit         = 1   # the dimensionless base
 
 
 def _dimension_name(unit):
@@ -57,7 +69,8 @@ def _dimension_name(unit):
 _internal_base = {
     _dimension_name(unit): unit
     for unit in (time_unit, length_unit, mass_unit, current_unit,
-                 temperature_unit, amount_unit, luminous_unit)
+                 temperature_unit, amount_unit, luminous_unit, photoelectron_unit,
+                 adc_unit)
 }
 
 
@@ -81,10 +94,13 @@ def reduce_to_internal(value):
     Reduce a configuration value to the internal system of units.
 
     Plain numbers and dimensionless quantities are already in the system
-    (their base is 1). Every other quantity is reduced to the internal bases
-    of its SI dimensions: time to microseconds, length to millimeters, and
-    mass, current, temperature, amount and luminous intensity to their SI
-    base units. A quantity of a dimension without an internal base raises
+    (their base is 1). Every other quantity is reduced to its internal base
+    units: time to microseconds, length to millimeters, photoelectrons to
+    ``photoelectron`` (alias ``pe``), ADC amplitudes to ``adc``, and mass,
+    current, temperature, amount and luminous intensity to their SI base units.
+    Photoelectron rates reduce to pe
+    per microsecond; gains reduce to adc * microsecond / pe. A quantity of a
+    dimension without an internal base raises
     ``pint.errors.DimensionalityError``.
 
     Args:

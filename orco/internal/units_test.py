@@ -1,14 +1,17 @@
 from pytest import approx
+from pytest import mark
 from pytest import raises
 
 from pint.errors import DimensionalityError
 
+from .units import adc_unit
 from .units import amount_unit
 from .units import count_unit
 from .units import current_unit
 from .units import length_unit
 from .units import luminous_unit
 from .units import mass_unit
+from .units import photoelectron_unit
 from .units import reduce_to_internal
 from .units import temperature_unit
 from .units import time_unit
@@ -51,6 +54,74 @@ def test_amount_base_is_defined_as_one_mole():
 
 def test_luminous_base_is_defined_as_one_candela():
     assert luminous_unit == units.candela
+
+
+def test_photoelectron_is_an_independent_internal_base():
+    assert photoelectron_unit == units.photoelectron
+    assert units.pe == units.photoelectron
+    assert dict(units.pe.dimensionality) == {"[photoelectron]": 1}
+    assert not (1 * units.pe).dimensionless
+
+
+@mark.parametrize("target", ("dimensionless", "coulomb", "mole"))
+def test_photoelectron_cannot_convert_to_other_dimensions(target):
+    with raises(DimensionalityError):
+        (1 * units.pe).to(target)
+
+
+@mark.parametrize(("expression", "expected"),
+                  (("5 * pe", 5),
+                   ("5 * photoelectron", 5),
+                   ("2 * kilophotoelectron", 2000),
+                   ("5 * pe / microsecond", 5),
+                   ("1 * pe / nanosecond", 1000),
+                   ("1 * pe / millisecond", 0.001),
+                   ("(2 * pe / microsecond) * (500 * nanosecond)", 1),
+                   ("(1 * kilophotoelectron) / (1 * pe)", 1000)))
+def test_photoelectron_quantities_reduce_in_config_scope(expression, expected):
+    assert reduce_to_internal(eval(expression, unit_scope())) == approx(expected)
+
+
+def test_photoelectron_ratio_is_dimensionless():
+    ratio = (3 * units.pe) / (2 * units.photoelectron)
+
+    assert ratio.dimensionless
+    assert reduce_to_internal(ratio) == approx(1.5)
+
+
+def test_adc_is_an_independent_internal_base():
+    assert adc_unit == units.adc
+    assert dict(units.adc.dimensionality) == {"[adc]": 1}
+    assert not (1 * units.adc).dimensionless
+
+
+@mark.parametrize("target", ("dimensionless", "coulomb", "pe"))
+def test_adc_cannot_convert_to_other_dimensions(target):
+    with raises(DimensionalityError):
+        (1 * units.adc).to(target)
+
+
+@mark.parametrize(("expression", "expected"),
+                  (("5 * adc", 5),
+                   ("2 * kiloadc", 2000),
+                   ("3 * adc * microsecond", 3),
+                   ("20 * adc * nanosecond / pe", 0.02),
+                   ("2 * adc * millisecond / photoelectron", 2000),
+                   ("(2 * kiloadc) / (4 * adc)", 500)))
+def test_adc_quantities_reduce_in_config_scope(expression, expected):
+    assert reduce_to_internal(eval(expression, unit_scope())) == approx(expected)
+
+
+def test_adc_gain_produces_photoelectron_rate_and_integrated_charge():
+    amplitude = 10 * units.adc
+    gain = 2 * units.adc * units.microsecond / units.pe
+    rate = amplitude / gain
+    charge = rate * (200 * units.nanosecond)
+
+    assert rate.to(units.pe / units.microsecond).magnitude == approx(5)
+    assert charge.to(units.pe).magnitude == approx(1)
+    assert reduce_to_internal(rate) == approx(5)
+    assert reduce_to_internal(charge) == approx(1)
 
 
 def test_count_base_is_defined_as_one():

@@ -122,14 +122,16 @@
               default = {
                 type = "app";
                 program = "${orco}/bin/orco";
+                meta.description = orco.meta.description;
               };
               orco = {
                 type = "app";
                 program = "${orco}/bin/orco";
+                meta.description = orco.meta.description;
               };
             };
 
-            devShell = pkgs.mkShell {
+            devShells.default = pkgs.mkShell {
               name = "RECOLINA";
 
               packages = [

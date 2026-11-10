@@ -6,6 +6,7 @@ import tables as tb
 
 from pytest import approx
 from pytest import mark
+from pytest import raises
 
 from ..internal.types import ClosedInterval
 from ..internal.types import Interval
@@ -38,7 +39,15 @@ def peak_properties_config(**overrides):
     return PeakPropertiesConfig(**values)
 
 
-def test_dst_config_loads_properties_and_units(tmp_path):
+@mark.parametrize(("field", "expression"),
+                  ((None, None),
+                   ("s1_min_width", "0"),
+                   ("s1_min_height", "2 * pe"),
+                   ("s1_min_integral", "5 * pe / microsecond"),
+                   ("s2_threshold", "1 * adc"),
+                   ("s1_min_count", "1 * microsecond"),
+                   ("s2_max_multiplicity", "1.5")))
+def test_dst_config_loads_properties_and_units(tmp_path, field, expression):
     filename = tmp_path / "dsts.conf"
     filename.write_text(dedent("""
         detector = pColina
@@ -47,26 +56,32 @@ def test_dst_config_loads_properties_and_units(tmp_path):
         s1_max_count = 3
         s1_min_width = 200 * ns
         s1_max_width = 1 * microsecond
-        s1_min_height = 2
-        s1_max_height = 10
-        s1_min_integral = 5
-        s1_max_integral = 100
+        s1_min_height = 2000 * pe / millisecond
+        s1_max_height = 10 * pe / microsecond
+        s1_min_integral = 5 * pe
+        s1_max_integral = 0.1 * kilophotoelectron
         s1_min_multiplicity = 1
         s1_max_multiplicity = 4
-        s1_threshold = 1
+        s1_threshold = 1 * pe
 
         s2_min_count = 0
         s2_max_count = 2
         s2_min_width = 300 * ns
         s2_max_width = 2 * microsecond
-        s2_min_height = 3
-        s2_max_height = 20
-        s2_min_integral = 6
-        s2_max_integral = 200
+        s2_min_height = 3 * pe / microsecond
+        s2_max_height = 20 * pe / microsecond
+        s2_min_integral = 6 * pe
+        s2_max_integral = 200 * pe
         s2_min_multiplicity = 2
         s2_max_multiplicity = 5
-        s2_threshold = 2
+        s2_threshold = 2 * photoelectron
     """))
+
+    if field is not None:
+        filename.write_text(filename.read_text() + f"\n{field} = {expression}\n")
+        with raises(ValueError, match=field):
+            DstConfig.load(filename)
+        return
 
     config = DstConfig.load(filename)
 
@@ -78,6 +93,7 @@ def test_dst_config_loads_properties_and_units(tmp_path):
     assert config.s1_props.multiplicity == ClosedInterval(1, 4)
     assert config.s1_props.threshold == 1
     assert config.s2_props.width == Interval(0.3, 2)
+    assert config.s2_props.threshold == 2
 
 
 @mark.parametrize("sampling_time", (0.016, 0.032, 0.5, 1.0))
@@ -236,25 +252,25 @@ def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch, sa
         s1_max_count = 1
         s1_min_width = 0 * microsecond
         s1_max_width = 1 * microsecond
-        s1_min_height = 0
-        s1_max_height = 10
-        s1_min_integral = 0
-        s1_max_integral = 10
+        s1_min_height = 0 * pe / microsecond
+        s1_max_height = 10 * pe / microsecond
+        s1_min_integral = 0 * pe
+        s1_max_integral = 10 * pe
         s1_min_multiplicity = 0
         s1_max_multiplicity = 2
-        s1_threshold = 0.04
+        s1_threshold = 0.04 * pe
 
         s2_min_count = 1
         s2_max_count = 1
         s2_min_width = 0 * microsecond
         s2_max_width = 1 * microsecond
-        s2_min_height = 0
-        s2_max_height = 10
-        s2_min_integral = 0
-        s2_max_integral = 10
+        s2_min_height = 0 * pe / microsecond
+        s2_max_height = 10 * pe / microsecond
+        s2_min_integral = 0 * pe
+        s2_max_integral = 10 * pe
         s2_min_multiplicity = 0
         s2_max_multiplicity = 2
-        s2_threshold = 0.04
+        s2_threshold = 0.04 * pe
     """))
     sensors = pd.DataFrame({"SensorID": [1, 2],
                             "Plane": ["NP", "NP"],

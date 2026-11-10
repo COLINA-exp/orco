@@ -20,16 +20,19 @@ from numpy.typing import ArrayLike
 from numpy.typing import NDArray
 
 from ..database.io      import load_sensor_position
+from ..internal.config  import config_from_scope
 from ..internal.symbols import Detector
 from ..internal.symbols import all_symbols
 from ..internal.types   import ClosedInterval
 from ..internal.types   import Interval
-from ..internal.units   import reduce_to_internal
+from ..internal.units   import Charge
+from ..internal.units   import units
 from ..internal.units   import unit_scope
 from ..io.hdf5          import df_writer
 from ..io.structures    import dst_types
 
 from typing import Any
+from typing import Annotated
 from typing import Iterator
 from typing import Mapping
 from typing import Sequence
@@ -51,22 +54,17 @@ class PeakPropertiesConfig:
         threshold: Inclusive minimum per-sensor charge in pe for multiplicity.
     """
 
-    count       : ClosedInterval
-    width       :       Interval
-    height      :       Interval
-    integral    :       Interval
-    multiplicity: ClosedInterval
-    threshold   : float
+    count       : Annotated[ClosedInterval, units.dimensionless]
+    width       : Annotated[Interval, units.microsecond]
+    height      : Annotated[Interval, units.pe / units.microsecond]
+    integral    : Annotated[Interval, units.pe]
+    multiplicity: Annotated[ClosedInterval, units.dimensionless]
+    threshold   : Charge
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> PeakPropertiesConfig:
-        count        = ClosedInterval(d["min_count"       ], d["max_count"       ])
-        width        =       Interval(d["min_width"       ], d["max_width"       ])
-        height       =       Interval(d["min_height"      ], d["max_height"      ])
-        integral     =       Interval(d["min_integral"    ], d["max_integral"    ])
-        multiplicity = ClosedInterval(d["min_multiplicity"], d["max_multiplicity"])
-        threshold    =                d["threshold"       ]
-        return cls(count, width, height, integral, multiplicity, threshold)
+        """Construct from flat min/max keys with explicit physical units."""
+        return config_from_scope(cls, d)
 
 
 @dataclass
@@ -83,6 +81,10 @@ class DstConfig:
         The config file must define ``detector`` and the `PeakPropertiesConfig`
         fields with the corresponding ``s1_``/``s2_`` prefixes.
 
+        Widths require time quantities, heights require pe/us and integrals and
+        charge thresholds require pe. Count and multiplicity limits must be
+        dimensionless integers. Errors identify the invalid config key.
+
         Args:
             filename: Python config file defining the DST settings.
 
@@ -94,12 +96,9 @@ class DstConfig:
         with open(filename) as file:
             exec(file.read(), scope)
 
-        s1_props = { key[3:] : reduce_to_internal(value) for key, value in scope.items() if key.startswith("s1_") }
-        s2_props = { key[3:] : reduce_to_internal(value) for key, value in scope.items() if key.startswith("s2_") }
-
-        return cls(PeakPropertiesConfig.from_dict(s1_props),
-                   PeakPropertiesConfig.from_dict(s2_props),
-                   scope["detector"])
+        return config_from_scope(cls, scope,
+                                 s1_props=config_from_scope(PeakPropertiesConfig, scope, prefix="s1_"),
+                                 s2_props=config_from_scope(PeakPropertiesConfig, scope, prefix="s2_"))
 
 
 def read_pmaps(input_file: Path) -> Iterator[Mapping[str, Any]]:

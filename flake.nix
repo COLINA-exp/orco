@@ -107,6 +107,7 @@
               nativeBuildInputs = [ testPython ];
             } ''
               cp -R ${self}/orco ./orco
+              cp -R ${self}/config ./config
               chmod -R u+w ./orco
               pytest -q -W error orco
               touch "$out"

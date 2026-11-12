@@ -108,13 +108,13 @@ See [pmaps_mc.conf](../config/pmaps_mc.conf) and
 [pmaps_run_8.conf](../config/pmaps_run_8.conf) for complete examples.
 
 `detector` chooses the database. The sampling interval comes from the numeric
-`sample_period_ns` attribute on the input's `/Waveforms` group, in nanoseconds;
-PMAPs convert it to internal microseconds and assign sample zero time zero.
-There is no config fallback or override, and `sampling_time` is no longer a
-config field. Missing metadata is rejected before opening the output file;
-the acquisition is responsible for providing a valid sample period. Every
-following key is required twice, with `s1_` and
-`s2_` prefixes:
+`effective.sample_period_ns` field in the input's `/Acquisition/config_json`,
+in nanoseconds. PMAPs convert it to internal microseconds and assign sample zero
+time zero. There is no waveform-attribute or config fallback or override, and
+`sampling_time` is no longer a config field. Missing metadata is rejected before
+opening the output file; the acquisition is responsible for providing a valid
+sample period. Every following key is required twice, with `s1_` and `s2_`
+prefixes:
 
 | Suffix | Meaning |
 | --- | --- |

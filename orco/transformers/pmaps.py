@@ -37,6 +37,7 @@ from ..internal.units   import unit_scope
 from ..internal.units   import units
 from ..io.hdf5          import copy_acquisition
 from ..io.hdf5          import df_writer
+from ..io.hdf5          import read_acquisition_config
 from ..reco.waveforms   import calibrate
 from ..reco.waveforms   import find_windows
 from ..reco.waveforms   import invert_polarity
@@ -81,21 +82,23 @@ class PMapConfig:
                                  s2=config_from_scope(PeakConfig, scope, prefix="s2_"))
 
 
-def read_sampling_time(input_file: Path) -> float:
+def get_sampling_time(config: Mapping[str, Any]) -> float:
     """
-    Read ``/Waveforms`` attribute ``sample_period_ns`` as microseconds.
+    Extract the DAQ sampling time from the acquisition JSON config.
 
-    The waveform metadata is authoritative; there is no configuration fallback.
-    Missing metadata raises ValueError before the output file is opened. The
-    acquisition is responsible for supplying a valid sample period; conversion
-    to the internal time unit is delegated to the shared unit helper.
+    Return the period in internal units.
+
+    Args:
+        config: Acquisition configuration returned by ``read_acquisition_config``.
+
+    Returns:
+        sampling_time
+
+    Raises:
+        KeyError if the required fields are not present.
     """
-    with tb.open_file(input_file, "r") as infile:
-        try:
-            period = np.asarray(infile.root.Waveforms._v_attrs.sample_period_ns)
-        except (tb.NoSuchNodeError, AttributeError) as error:
-            raise ValueError(f"{input_file}: missing /Waveforms sample_period_ns metadata") from error
-        return reduce_to_internal(float(period) * units.nanosecond)
+    period = config["effective"]["sample_period_ns"]
+    return reduce_to_internal(period * units.nanosecond)
 
 
 def get_sensor_ids(channels       : np.ndarray,
@@ -154,8 +157,7 @@ def read_wfms(input_file     : Path,
             ``(event, channel, sample)`` order, plus one-dimensional
             ``channel_id`` and ``event_id`` arrays in that group.
         channel_mapping: Run-valid dataframe with ``ChannelID`` and ``SensorID``.
-        sampling_time: Input metadata's sample interval, in microseconds;
-            sample zero has time zero. Obtain it with ``read_sampling_time``.
+        sampling_time: Input metadata's sample interval, sample zero has time zero.
 
     Yields:
         Mappings with ``event`` and ``wfms`` (a ``Waveforms`` instance). Input
@@ -326,9 +328,12 @@ def main(argv=None):
     if args.input_file.resolve() == args.output_file.resolve():
         parser.error("input and output files must be different")
 
-    config = PMapConfig.load(args.config_file)
+    config  = PMapConfig.load(args.config_file)
     mapping = load_channel_mapping(config.detector, args.run_number)
-    sampling_time = read_sampling_time(args.input_file)
+
+    acquisition_config = read_acquisition_config(args.input_file)
+    sampling_time      = get_sampling_time(acquisition_config)
+
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
         copy_acquisition(args.input_file, outfile)
         outfile.root._v_attrs.sampling_time_microseconds = sampling_time

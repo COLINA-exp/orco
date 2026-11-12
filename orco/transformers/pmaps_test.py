@@ -1,5 +1,6 @@
 from textwrap import dedent
 from pathlib import Path
+from json import dumps
 
 import numpy  as np
 import pandas as pd
@@ -21,7 +22,7 @@ from . pmaps          import find_peaks
 from . pmaps          import get_sensor_ids
 from . pmaps          import main
 from . pmaps          import read_wfms
-from . pmaps          import read_sampling_time
+from . pmaps          import get_sampling_time
 from . pmaps          import select_windows
 from . dsts           import DstConfig
 
@@ -254,14 +255,18 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_acqu
     amplitudes[:, :, 5:8] = -5   # pulse recorded as a negative dip
     channels = np.array([1, 2, 3, 4])
     events   = np.array([100, 101])
+    acquisition_config = dict(run_number=0, effective={})
+    if period_ns is not None:
+        acquisition_config["effective"]["sample_period_ns"] = period_ns
+    payload = dumps(acquisition_config).encode("utf-8")
     with tb.open_file(input_file, "w") as h5out:
         if has_acquisition:
             acquisition = h5out.create_group("/", "Acquisition")
             acquisition._v_attrs.run_number = 0
-            h5out.create_array(acquisition, "config_json", b'{"run_number": 0}')
+            h5out.create_array(acquisition, "config_json", payload)
         group = h5out.create_group("/", "Waveforms")
-        if period_ns is not None:
-            group._v_attrs.sample_period_ns = period_ns
+        # The old waveform attribute must not override or replace the JSON.
+        group._v_attrs.sample_period_ns = 999
         h5out.create_array(group, "adcs", amplitudes)
         h5out.create_array(group, "channel_id", channels)
         h5out.create_array(group, "event_id", events)
@@ -290,10 +295,12 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_acqu
     output_file = tmp_path / "pmaps.h5"
     arguments = ["-i", str(input_file), "-o", str(output_file),
                  "-c", str(config_file), "-r", "0"]
-    if period_ns is None:
+    if period_ns is None or not has_acquisition:
         original = b"existing output must survive missing input metadata"
         output_file.write_bytes(original)
-        with raises(ValueError, match="sample_period_ns"):
+        error = KeyError if has_acquisition else tb.NoSuchNodeError
+        missing = "sample_period_ns" if has_acquisition else "/Acquisition/config_json"
+        with raises(error, match=missing):
             main(arguments)
         assert output_file.read_bytes() == original
         return
@@ -303,10 +310,8 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_acqu
     main(arguments)
 
     with tb.open_file(output_file) as h5out:
-        assert ("Acquisition" in h5out.root) == has_acquisition
-        if has_acquisition:
-            assert h5out.root.Acquisition._v_attrs.run_number == 0
-            assert h5out.root.Acquisition.config_json.read() == b'{"run_number": 0}'
+        assert h5out.root.Acquisition._v_attrs.run_number == 0
+        assert h5out.root.Acquisition.config_json.read() == payload
         assert h5out.root._v_attrs.sampling_time_microseconds == period_ns / 1000
         assert_array_equal(h5out.root.PMaps.events.col("event"), events)
         assert set(h5out.root.PMaps.S1.col("event")) == set(events.tolist())
@@ -316,22 +321,16 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_acqu
 
 
 @mark.parametrize("period_ns", (16, 32.5))
-def test_read_sampling_time_converts_nanoseconds_to_microseconds(tmp_path, period_ns):
-    filename = tmp_path / "waveforms.h5"
-    with tb.open_file(filename, "w") as output:
-        group = output.create_group("/", "Waveforms")
-        group._v_attrs.sample_period_ns = period_ns
+def test_get_sampling_time_converts_json_nanoseconds_to_microseconds(period_ns):
+    config = dict(effective=dict(sample_period_ns=period_ns))
 
-    assert read_sampling_time(filename) == period_ns / 1000
+    assert get_sampling_time(config) == period_ns / 1000
 
 
-def test_read_sampling_time_reports_missing_waveforms_group(tmp_path):
-    filename = tmp_path / "waveforms.h5"
-    with tb.open_file(filename, "w"):
-        pass
-
-    with raises(ValueError, match="sample_period_ns"):
-        read_sampling_time(filename)
+@mark.parametrize("config", ({}, dict(effective={})))
+def test_get_sampling_time_reports_missing_json_metadata(config):
+    with raises(KeyError):
+        get_sampling_time(config)
 
 
 def test_get_sensor_ids_maps_channels_in_input_order():

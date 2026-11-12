@@ -13,12 +13,13 @@ The PMAP transformer expects:
 | `/Waveforms/channel_id` | `(channels,)` | Electronics channel identifiers in the second-axis order. |
 | `/Waveforms/event_id` | `(events,)` | Event identifiers in the first-axis order. |
 
-The `/Waveforms` group must have a numeric scalar attribute `sample_period_ns`,
-the finite positive interval between samples in nanoseconds. For example, `16`
-means 16 ns and becomes `0.016` microseconds internally. This attribute is the
-source of sampling time, not the configuration file or `/Acquisition` metadata.
-Files without it must have their acquisition metadata supplied before PMAP
-reconstruction; no default sampling interval is assumed.
+The JSON object stored in `/Acquisition/config_json` must contain the numeric
+field `effective.sample_period_ns`, the finite positive interval between
+samples in nanoseconds. For example, `16` means 16 ns and becomes `0.016`
+microseconds internally. This JSON field is the source of sampling time;
+the `/Waveforms` attribute `sample_period_ns` and configuration file are not
+used. Files without the JSON field must have their acquisition metadata supplied
+before PMAP reconstruction; no default sampling interval is assumed.
 
 The channel mapping for the supplied detector/run translates channel IDs into
 sensor IDs. Unknown input channels are dropped with a warning; missing channels
@@ -44,12 +45,13 @@ microseconds. No timestamp array is required in the raw file.
 Both transformers copy the full `/Acquisition` group from input to output when
 present, preserving its attributes and all nested groups, arrays and tables.
 This carries acquisition metadata through raw waveform, PMAP and DST files
-without interpreting or applying it. Inputs without `/Acquisition` remain
-supported; no placeholder group is created. The copy is independent of event
-limits and peak selections.
+without modifying it. The copy is independent of event limits and peak
+selections. PMAP reconstruction requires the JSON sampling period described
+above. DST inputs without `/Acquisition` remain supported; no placeholder
+group is created.
 
-Raw files can also contain `/Acquisition/config_json`, a scalar string array
-holding the full run configuration as JSON. A standalone reader is available:
+`/Acquisition/config_json` is a scalar string array holding the full run
+configuration as JSON. A standalone reader is available:
 
 ```python
 from orco.io.hdf5 import read_acquisition_config
@@ -62,14 +64,15 @@ closes it before returning. The standard JSON decoder handles text encoding;
 this is separate from the dataframe writer's ASCII-only string columns. Missing
 nodes and malformed JSON raise the underlying PyTables/JSON errors.
 
-The reader does not apply or validate settings and is not connected to any
-transformer. `/Acquisition/Configuration/config_json`, when present, is a
-different acquisition-only subsection and is not used as a fallback.
+The reader does not apply or validate settings. The PMAP transformer uses
+`effective.sample_period_ns` from this dictionary for its sampling interval.
+`/Acquisition/Configuration/config_json`, when present, is a different
+acquisition-only subsection and is not used as a fallback.
 
 ## PMAP output
 
 The root attribute `sampling_time_microseconds` is the interval between samples,
-converted from the raw waveform group's `sample_period_ns` attribute.
+converted from `effective.sample_period_ns` in the raw file's acquisition JSON.
 It is required by the DST reader, including for one-sample peaks. Older files
 without it are not supported by that reader.
 

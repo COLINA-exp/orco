@@ -54,7 +54,7 @@ def read_acquisition_config(input_file: str | Path) -> dict[str, Any]:
     not a PyTables table. The separate ``/Acquisition/Configuration/config_json``
     subsection is not read. The file is opened read-only and closed before
     returning a plain dictionary, including nested JSON values. No configuration
-    settings are applied or validated, and no transformer uses this reader yet.
+    settings are applied or validated by this reader.
 
     Args:
         input_file: Input HDF5 filename.

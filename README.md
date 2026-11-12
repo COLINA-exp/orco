@@ -62,6 +62,12 @@ Both transformers require `-i`, `-o`, `-c` and `-r`. `-n N` limits processing to
 the first `N` input events; the default `-n -1` processes all events. `--quiet`
 suppresses progress messages.
 
+Both transformers accept `-db FILE` (or `--database FILE`) to use a separate
+read-only SQLite database. Without it, ORCO selects the bundled database using
+the DAQ detector.
+Explicit filenames need not match the detector name. Use matching calibration
+and geometry data at both stages; see the [database guide](docs/database.md).
+
 ## Reference
 
 - [Configuration](docs/configuration.md): required settings, units and cut

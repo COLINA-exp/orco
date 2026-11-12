@@ -1,14 +1,28 @@
 # Calibration database
 
-ORCO bundles `orco/database/pColina.sqlite3`. Database files are discovered in
-the installed `orco/database` directory by their `.sqlite3` extension. Their
-filename stems must identify a `Detector` symbol, ignoring case. There is no
-CLI option to select a different database directory.
+ORCO bundles `orco/database/pColina.sqlite3`. By default, database files are
+discovered in the installed `orco/database` directory by their `.sqlite3`
+extension. Their filename stems must identify a `Detector` symbol, ignoring
+case; the detector comes from DAQ JSON.
+
+Both transformers accept `-db FILE` (or `--database FILE`) to override bundled
+discovery.
+Explicit files may have any filename or extension, must use the existing SQLite
+schema, and are opened read-only. An invalid explicit file never falls back to
+a bundled database. The selected path must be an existing regular file; SQLite
+contents and required tables are checked when queried. There is no detector
+metadata in the database schema to verify against DAQ JSON.
+
+```sh
+orco pmaps -i waveforms.h5 -o pmaps.h5 -c pmaps.conf -r 3 --database calibration.sqlite3
+orco dsts -i pmaps.h5 -o dsts.h5 -c dsts.conf -r 3 --database calibration.sqlite3
+```
 
 The Nix package copies the database beside its Python loader. Readers use
 SQLite's read-only mode; they do not modify calibration data. The installed
-Nix-store copy is immutable. To change bundled data, edit the source database
-carefully, run the tests, and rebuild/reinstall the package.
+Nix-store copy is immutable. Use `--database` to work with a separate database
+without reinstalling. To change bundled data, edit the source database carefully,
+run the tests, and rebuild/reinstall the package.
 
 ## Tables and identifiers
 
@@ -74,15 +88,19 @@ python
 ```
 
 ```python
-from orco.database.io import load_sensor_calibration, load_sensor_position
+from pathlib import Path
+from orco.database.io import get_database, load_sensor_calibration, load_sensor_position
 from orco.internal.symbols import Detector
 
-calibration = load_sensor_calibration(Detector.pColina, -1)
-positions = load_sensor_position(Detector.pColina, -1)
+database_file = get_database(Detector.pColina)
+# Or: get_database(Detector.pColina, Path("custom-calibration.sqlite3"))
+calibration = load_sensor_calibration(database_file, -1)
+positions = load_sensor_position(database_file, -1)
 ```
 
 The loaders return pandas dataframes. Calibration, mapping and position loaders
-cache results by detector/run in the current process. Treat cached dataframes as
+cache results by database path/run in the current process. Resolve paths with
+`get_database` before calling any loader. Treat cached dataframes as
 read-only, or use `.copy()` before editing them. Restart the process or call the
 relevant loader's `.cache_clear()` after changing a source database.
 

@@ -5,13 +5,15 @@ Calibration rows are selected by an inclusive run-validity interval. A row is
 valid when ``FirstRun <= run_number <= LastRun``. A null ``LastRun`` denotes an
 open-ended interval, in which case only the lower bound is checked.
 
-Databases are discovered beside this module using detector names and the
-``.sqlite3`` extension, and are opened read-only. Calibrations and positions use
-SensorID; ChannelID is only the electronics-channel key in ChannelMapping.
+Databases are selected by explicit path or discovered beside this module using
+detector names and the ``.sqlite3`` extension, and are opened read-only.
+Calibrations and positions use SensorID; ChannelID is only the electronics-channel
+key in ChannelMapping.
 
-Calibration, mapping and position dataframes are cached by detector/run. Callers
-should copy them before mutation. All valid rows are returned; overlapping run
-ranges are not resolved by selecting a latest version. See ``docs/database.md``.
+Calibration, mapping and position dataframes are cached by database path/run.
+Callers should copy them before mutation. All valid rows are returned;
+overlapping run ranges are not resolved by selecting a latest version.
+See ``docs/database.md``.
 """
 
 from contextlib import closing
@@ -47,21 +49,40 @@ def find_databases() -> dict[Detector, Path]:
 
 
 
-def get_database(detector: Detector) -> Path:
+def get_database(detector: Detector, database_file: Path | None = None) -> Path:
     """
-    Return the database path for ``detector``.
+    Resolve an explicit database file or discover the bundled detector database.
+
+    Explicit files bypass discovery and may have any filename or extension.
+    No fallback is attempted if the selected path is invalid. SQLite contents
+    and table schemas are checked only when queried by a loader.
+
+    Args:
+        detector: Detector used for bundled database discovery.
+        database_file: Optional override of the bundled database path.
+
+    Returns:
+        Resolved path to an existing regular file. Pass it to the loaders so
+        their caches are keyed by a stable database path and run number.
 
     Raises:
-        FileNotFoundError: If no database is available for ``detector``.
+        FileNotFoundError: If the selected file or bundled database is missing.
+        ValueError: If the selected path is not a regular file, or discovery
+            encounters an unknown detector filename.
     """
-    databases = find_databases()
-    if detector not in databases:
-        raise FileNotFoundError(f"No SQLite database found for {detector.name} in {DATABASE_DIRECTORY}")
-    return databases[detector]
+    if database_file is None:
+        databases = find_databases()
+        if detector not in databases:
+            raise FileNotFoundError(f"No SQLite database found for {detector.name} in {DATABASE_DIRECTORY}")
+        database_file = databases[detector]
+    database_file = database_file.resolve(strict=True)
+    if not database_file.is_file():
+        raise ValueError(f"Database path is not a regular file: {database_file}")
+    return database_file
 
 
 @lru_cache()
-def load_sensor_calibration(detector: Detector, run_number: int) -> pd.DataFrame:
+def load_sensor_calibration(database_file: Path, run_number: int) -> pd.DataFrame:
     """
     Load sensor calibrations valid for a run into a dataframe.
 
@@ -69,7 +90,7 @@ def load_sensor_calibration(detector: Detector, run_number: int) -> pd.DataFrame
     every column from ``SensorCalibration``.
 
     Args:
-        detector: Detector whose calibration constants are required.
+        database_file: Resolved SQLite database path returned by ``get_database``.
         run_number: Run for which calibration constants are required.
 
     Returns:
@@ -77,11 +98,9 @@ def load_sensor_calibration(detector: Detector, run_number: int) -> pd.DataFrame
         ``run_number <= LastRun`` or ``LastRun IS NULL``.
 
     Raises:
-        FileNotFoundError: If no database is available for ``detector``.
-        ValueError: If a database filename does not identify a known detector.
-        sqlite3.Error: If the selected database cannot be opened or queried.
+        sqlite3.Error: If the selected database cannot be opened.
+        pandas.errors.DatabaseError: If its contents or required tables cannot be queried.
     """
-    database_file = get_database(detector)
     uri = f"{database_file.resolve().as_uri()}?mode=ro"
     query = """
         SELECT
@@ -104,7 +123,7 @@ def load_sensor_calibration(detector: Detector, run_number: int) -> pd.DataFrame
                                  params={"run_number": run_number})
 
 
-def load_sensor_count(detector: Detector, run_number: int) -> pd.DataFrame:
+def load_sensor_count(database_file: Path, run_number: int) -> pd.DataFrame:
     """
     Load the sensor counts valid for a run into a dataframe.
 
@@ -112,7 +131,7 @@ def load_sensor_count(detector: Detector, run_number: int) -> pd.DataFrame:
     ``NSensorTotal``. Results are ordered by FirstRun and are not cached.
 
     Args:
-        detector: Detector whose sensor counts are required.
+        database_file: Resolved SQLite database path returned by ``get_database``.
         run_number: Run for which sensor counts are required.
 
     Returns:
@@ -120,11 +139,9 @@ def load_sensor_count(detector: Detector, run_number: int) -> pd.DataFrame:
         ``run_number <= LastRun`` or ``LastRun IS NULL``.
 
     Raises:
-        FileNotFoundError: If no database is available for ``detector``.
-        ValueError: If a database filename does not identify a known detector.
-        sqlite3.Error: If the selected database cannot be opened or queried.
+        sqlite3.Error: If the selected database cannot be opened.
+        pandas.errors.DatabaseError: If its contents or required tables cannot be queried.
     """
-    database_file = get_database(detector)
     uri = f"{database_file.resolve().as_uri()}?mode=ro"
     query = """
         SELECT
@@ -146,14 +163,14 @@ def load_sensor_count(detector: Detector, run_number: int) -> pd.DataFrame:
 
 
 @lru_cache()
-def load_channel_mapping(detector: Detector, run_number: int) -> pd.DataFrame:
+def load_channel_mapping(database_file: Path, run_number: int) -> pd.DataFrame:
     """
     Load the sensor-to-channel mappings valid for a run into a dataframe.
 
     Rows are ordered by channel identifier.
 
     Args:
-        detector: Detector whose sensor-to-channel mappings are required.
+        database_file: Resolved SQLite database path returned by ``get_database``.
         run_number: Run for which the mappings are required.
 
     Returns:
@@ -161,11 +178,9 @@ def load_channel_mapping(detector: Detector, run_number: int) -> pd.DataFrame:
         ``run_number <= LastRun`` or ``LastRun IS NULL``.
 
     Raises:
-        FileNotFoundError: If no database is available for ``detector``.
-        ValueError: If a database filename does not identify a known detector.
-        sqlite3.Error: If the selected database cannot be opened or queried.
+        sqlite3.Error: If the selected database cannot be opened.
+        pandas.errors.DatabaseError: If its contents or required tables cannot be queried.
     """
-    database_file = get_database(detector)
     uri = f"{database_file.resolve().as_uri()}?mode=ro"
     query = """
         SELECT
@@ -186,7 +201,7 @@ def load_channel_mapping(detector: Detector, run_number: int) -> pd.DataFrame:
 
 
 @lru_cache()
-def load_sensor_position(detector: Detector, run_number: int) -> pd.DataFrame:
+def load_sensor_position(database_file: Path, run_number: int) -> pd.DataFrame:
     """
     Load the sensor positions valid for a run into a dataframe.
 
@@ -194,7 +209,7 @@ def load_sensor_position(detector: Detector, run_number: int) -> pd.DataFrame:
     ``X``, ``Y``, ``Z`` are in millimeters, and ``Type`` identifies sensor type.
 
     Args:
-        detector: Detector whose sensor positions are required.
+        database_file: Resolved SQLite database path returned by ``get_database``.
         run_number: Run for which the positions are required.
 
     Returns:
@@ -202,11 +217,9 @@ def load_sensor_position(detector: Detector, run_number: int) -> pd.DataFrame:
         ``run_number <= LastRun`` or ``LastRun IS NULL``.
 
     Raises:
-        FileNotFoundError: If no database is available for ``detector``.
-        ValueError: If a database filename does not identify a known detector.
-        sqlite3.Error: If the selected database cannot be opened or queried.
+        sqlite3.Error: If the selected database cannot be opened.
+        pandas.errors.DatabaseError: If its contents or required tables cannot be queried.
     """
-    database_file = get_database(detector)
     uri = f"{database_file.resolve().as_uri()}?mode=ro"
     query = """
         SELECT

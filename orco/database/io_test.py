@@ -4,6 +4,7 @@ import sqlite3
 
 from numpy.testing import assert_array_equal
 from pytest import raises
+from pytest import mark
 
 from ..internal.symbols import Detector
 from . import io
@@ -92,7 +93,7 @@ def test_load_sensor_calibration_selects_valid_run_intervals(tmp_path, monkeypat
     create_database(filename)
     monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
 
-    calibration = load_sensor_calibration(Detector.pColina, 5)
+    calibration = load_sensor_calibration(get_database(Detector.pColina), 5)
 
     assert calibration.SensorID.tolist() == [1, 2, 4]
     assert calibration.Gain    .tolist() == [3.0, 2.0, 5.0]
@@ -103,13 +104,13 @@ def test_load_sensor_calibration_keeps_only_open_interval_after_last_run(tmp_pat
     create_database(filename)
     monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
 
-    calibration = load_sensor_calibration(Detector.pColina, 11)
+    calibration = load_sensor_calibration(get_database(Detector.pColina), 11)
 
     assert calibration.SensorID.tolist() == [4]
 
 
 def test_load_sensor_calibration_reads_bundled_database():
-    calibration = load_sensor_calibration(Detector.pColina, -1)
+    calibration = load_sensor_calibration(get_database(Detector.pColina), -1)
 
     assert len(calibration) == 125
     assert_array_equal(calibration.SensorID, [n * 1000 + k for n in range(5) for k in range(25)])
@@ -123,7 +124,7 @@ def test_load_sensor_count_selects_valid_run_intervals(tmp_path, monkeypatch):
     create_database(filename)
     monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
 
-    sensor_count = load_sensor_count(Detector.pColina, 5)
+    sensor_count = load_sensor_count(get_database(Detector.pColina), 5)
 
     assert sensor_count.NSensorsNear.tolist() == [10]
     assert sensor_count.NSensorsFar .tolist() == [20]
@@ -135,7 +136,7 @@ def test_load_sensor_count_keeps_open_interval_after_last_run(tmp_path, monkeypa
     create_database(filename)
     monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
 
-    sensor_count = load_sensor_count(Detector.pColina, 11)
+    sensor_count = load_sensor_count(get_database(Detector.pColina), 11)
 
     assert sensor_count.NSensorsNear.tolist() == [4]
     assert sensor_count.NSensorsFar .tolist() == [0]
@@ -143,7 +144,7 @@ def test_load_sensor_count_keeps_open_interval_after_last_run(tmp_path, monkeypa
 
 
 def test_load_sensor_count_reads_bundled_database():
-    sensor_count = load_sensor_count(Detector.pColina, 0)
+    sensor_count = load_sensor_count(get_database(Detector.pColina), 0)
 
     assert len(sensor_count) == 1
     assert sensor_count.iloc[0].FirstRun     == 0
@@ -157,7 +158,7 @@ def test_load_channel_mapping_selects_valid_run_intervals(tmp_path, monkeypatch)
     create_database(filename)
     monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
 
-    mapping = load_channel_mapping(Detector.pColina, 5)
+    mapping = load_channel_mapping(get_database(Detector.pColina), 5)
 
     assert mapping.ChannelID.tolist() == [1, 2, 3]
     assert mapping.SensorID .tolist() == [11, 12, 13]
@@ -168,14 +169,14 @@ def test_load_channel_mapping_keeps_open_interval_after_last_run(tmp_path, monke
     create_database(filename)
     monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
 
-    mapping = load_channel_mapping(Detector.pColina, 11)
+    mapping = load_channel_mapping(get_database(Detector.pColina), 11)
 
     assert mapping.ChannelID.tolist() == [3]
     assert mapping.SensorID .tolist() == [13]
 
 
 def test_load_channel_mapping_reads_bundled_database():
-    mapping = load_channel_mapping(Detector.pColina, -1)
+    mapping = load_channel_mapping(get_database(Detector.pColina), -1)
 
     assert len(mapping) == 125
     assert_array_equal(mapping.ChannelID, range(125))
@@ -190,7 +191,7 @@ def test_load_sensor_position_selects_valid_run_intervals(tmp_path, monkeypatch)
     create_database(filename)
     monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
 
-    position = load_sensor_position(Detector.pColina, 5)
+    position = load_sensor_position(get_database(Detector.pColina), 5)
 
     assert position.SensorID.tolist() == [11, 12, 13]
     assert position.X.tolist() == [4.0, 7.0, 1.5]
@@ -203,7 +204,7 @@ def test_load_sensor_position_keeps_open_interval_after_last_run(tmp_path, monke
     create_database(filename)
     monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
 
-    position = load_sensor_position(Detector.pColina, 11)
+    position = load_sensor_position(get_database(Detector.pColina), 11)
 
     assert position.SensorID.tolist() == [13]
     assert position.X.tolist() == [1.5]
@@ -212,7 +213,7 @@ def test_load_sensor_position_keeps_open_interval_after_last_run(tmp_path, monke
 
 
 def test_load_sensor_position_reads_bundled_database():
-    position = load_sensor_position(Detector.pColina, -1)
+    position = load_sensor_position(get_database(Detector.pColina), -1)
 
     assert len(position) == 125
     assert_array_equal(position.SensorID,
@@ -233,7 +234,7 @@ def test_load_sensor_position_reads_bundled_database():
 
 
 def test_load_sensor_position_reads_run_zero_positions():
-    position = load_sensor_position(Detector.pColina, 0)
+    position = load_sensor_position(get_database(Detector.pColina), 0)
 
     assert_array_equal(position.SensorID, range(4))
     assert_array_equal(position.FirstRun, 0)
@@ -261,11 +262,11 @@ def test_find_databases_recognizes_sqlite3_extension(tmp_path, monkeypatch):
     assert get_database(Detector.pColina) == expected
 
 
-def test_load_sensor_calibration_rejects_missing_database(tmp_path, monkeypatch):
+def test_get_database_reports_missing_bundled_database(tmp_path, monkeypatch):
     monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
 
     with raises(FileNotFoundError, match="No SQLite database"):
-        load_sensor_calibration(Detector.pColina, 0)
+        get_database(Detector.pColina)
 
 
 def test_find_databases_rejects_unknown_detector(tmp_path, monkeypatch):
@@ -274,3 +275,51 @@ def test_find_databases_rejects_unknown_detector(tmp_path, monkeypatch):
 
     with raises(ValueError, match="Detector 'unknown' does not exist"):
         find_databases()
+
+
+def test_get_database_explicit_file_bypasses_discovery(tmp_path, monkeypatch):
+    filename = tmp_path / "custom-calibration.data"
+    create_database(filename)
+    (tmp_path / "unknown.sqlite3").touch()
+    monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    assert get_database(Detector.Colina, filename.relative_to(tmp_path)) == filename
+
+
+def test_get_database_rejects_missing_override_without_fallback(tmp_path):
+    filename = tmp_path / "override"
+    with raises(FileNotFoundError):
+        get_database(Detector.pColina, filename)
+
+
+@mark.parametrize(("loader", "table", "column"),
+                  ((load_sensor_calibration, "SensorCalibration", "SensorID"),
+                   (load_channel_mapping, "ChannelMapping", "SensorID"),
+                   (load_sensor_position, "SensorPosition", "SensorID"),
+                   (load_sensor_count, "SensorCount", "NSensorTotal")))
+def test_loaders_isolate_databases_and_do_not_modify_them(tmp_path, loader, table, column):
+    first = tmp_path / "first.data"
+    second = tmp_path / "second.data"
+    create_database(first)
+    create_database(second)
+    with closing(sqlite3.connect(second)) as connection:
+        with connection:
+            connection.execute(f"UPDATE {table} SET {column} = {column} + 100")
+    original_first = first.read_bytes()
+    original_second = second.read_bytes()
+
+    first_data = loader(first, 5)
+    second_data = loader(second, 5)
+
+    assert_array_equal(second_data[column], first_data[column] + 100)
+    assert_array_equal(loader(first, 5)[column], first_data[column])
+    assert first.read_bytes() == original_first
+    assert second.read_bytes() == original_second
+
+
+def test_loader_does_not_create_a_missing_database(tmp_path):
+    filename = tmp_path / "missing.sqlite3"
+    with raises(sqlite3.OperationalError):
+        load_sensor_calibration(filename, 0)
+    assert not filename.exists()

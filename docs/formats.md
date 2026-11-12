@@ -21,8 +21,9 @@ the `/Waveforms` attribute `sample_period_ns` and configuration file are not
 used. Files without the JSON field must have their acquisition metadata supplied
 before PMAP reconstruction; no default sampling interval is assumed.
 
-The top-level JSON `detector` string selects the database, ignoring case (for
-example, `"pCOLINA"` selects `pColina`). The run number still comes from `-r`;
+The top-level JSON `detector` string selects the bundled database, ignoring case
+(for example, `"pCOLINA"` selects `pColina`). `--database FILE` overrides bundled
+selection in either transformer. The run number still comes from `-r`;
 neither transformer uses a config-file detector or the JSON's run number.
 The channel mapping for that detector/run translates channel IDs into sensor
 IDs. Unknown input channels are dropped with a warning; missing channels

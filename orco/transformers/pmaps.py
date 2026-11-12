@@ -23,6 +23,7 @@ import pandas as pd
 
 from typing import Any, Iterator, Mapping
 
+from ..database.io      import get_database
 from ..database.io      import load_channel_mapping
 from ..database.io      import load_sensor_calibration
 from ..internal.config  import config_from_scope
@@ -272,15 +273,16 @@ def create_pmap(event: int,
     return s1s, s2s
 
 
-def calibration_gains(detector: Detector, run_number: int, sensors: np.ndarray) -> np.ndarray:
+def calibration_gains(database_file: Path, run_number: int, sensors: np.ndarray) -> np.ndarray:
     """
     Return run-valid gains ordered according to the requested sensor IDs.
 
     ``SensorCalibration.SensorID`` is the lookup key, not electronics ChannelID.
     Gains are interpreted as ADC * us / pe and returned as a float array.
+    ``database_file`` is the resolved path selected by ``get_database``.
     A missing sensor raises ``ValueError``.
     """
-    calibration = load_sensor_calibration(detector, run_number).set_index("SensorID")
+    calibration = load_sensor_calibration(database_file, run_number).set_index("SensorID")
 
     sensors = np.asarray(sensors)
     missing = sensors[~np.isin(sensors, calibration.index)]
@@ -298,6 +300,7 @@ def main(argv=None):
     parser.add_argument("-r", "--run-number" , type=int , required=True, help="run number")
     parser.add_argument("-n", "--n-events"   , type=int , default =-1  , help="number of events to process")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("-db", "--database", type=Path, help="SQLite database file (default: bundled detector database)")
 
     args = parser.parse_args(argv)
 
@@ -311,7 +314,8 @@ def main(argv=None):
     daq_config    = read_daq_config(args.input_file)
     detector      = Detector.get(daq_config["detector"])
     sampling_time = get_sampling_time(daq_config)
-    mapping       = load_channel_mapping(detector, args.run_number)
+    database_file = get_database(detector, args.database)
+    mapping       = load_channel_mapping(database_file, args.run_number)
 
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
         copy_daq_config(args.input_file, outfile)
@@ -320,7 +324,7 @@ def main(argv=None):
             if not args.quiet:
                 print(f"\rProcessing event {i:>05}", end="", flush=True)
 
-            gains    = calibration_gains(detector, args.run_number, data["wfms"].sensors)
+            gains    = calibration_gains(database_file, args.run_number, data["wfms"].sensors)
             s1s, s2s = create_pmap(data["event"], data["wfms"], gains, config, sampling_time)
 
             events = pd.DataFrame(dict(event=[data["event"]]))

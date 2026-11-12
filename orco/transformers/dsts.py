@@ -22,6 +22,7 @@ import tables as tb
 from numpy.typing import ArrayLike
 from numpy.typing import NDArray
 
+from ..database.io      import get_database
 from ..database.io      import load_sensor_position
 from ..internal.config  import config_from_scope
 from ..internal.symbols import Detector
@@ -399,6 +400,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("-r", "--run-number" , type=int , required=True, help="run number")
     parser.add_argument("-n", "--n-events"   , type=int , default =-1  , help="number of events to process")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("-db", "--database", type=Path, help="SQLite database file (default: bundled detector database)")
     args = parser.parse_args(argv)
 
     if args.n_events < -1:
@@ -411,8 +413,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     daq_config    = read_daq_config(args.input_file)
     detector      = Detector.get(daq_config["detector"])
     sampling_time = get_sampling_time(daq_config)
+    database_file = get_database(detector, args.database)
 
-    sensors    = load_sensor_position(detector, args.run_number)
+    sensors    = load_sensor_position(database_file, args.run_number)
     sensors_np = sensors.loc[sensors.Plane == "NP"]
     sensors_fp = sensors.loc[sensors.Plane == "FP"]
     ids_np     = sensors_np.SensorID.to_numpy()

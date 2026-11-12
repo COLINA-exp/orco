@@ -109,7 +109,8 @@ dataclass construction continues to accept already converted internal values.
 See [pmaps_mc.conf](../config/pmaps_mc.conf) and
 [pmaps_run_8.conf](../config/pmaps_run_8.conf) for complete examples.
 
-The acquisition JSON's `detector` selects the database. The sampling interval
+The acquisition JSON's `detector` selects the bundled database unless an explicit
+file is supplied with `--database FILE`. The sampling interval
 comes from the numeric
 `effective.sample_period_ns` field in the input's `/Acquisition/config_json`,
 in nanoseconds. PMAPs convert it to internal microseconds and assign sample zero
@@ -142,6 +143,7 @@ See [dsts_mc.conf](../config/dsts_mc.conf) for a complete example. The detector
 and `effective.sample_period_ns` come from the acquisition JSON copied into
 the PMAP file, not from DST configuration or the PMAP root attribute. The shared
 unit helper converts the JSON period from nanoseconds to internal microseconds.
+`--database FILE` overrides bundled geometry database selection.
 Every following key is required with both `s1_` and `s2_` prefixes:
 
 | Suffix | Meaning and boundary convention |

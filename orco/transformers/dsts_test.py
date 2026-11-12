@@ -1,6 +1,10 @@
 from textwrap import dedent
 from pathlib import Path
 from json import dumps
+from shutil import copyfile
+from contextlib import closing
+
+import sqlite3
 
 import numpy as np
 import pandas as pd
@@ -11,6 +15,7 @@ from pytest import mark
 from pytest import raises
 
 from ..internal.symbols import Detector
+from ..database.io import get_database
 from ..internal.types import ClosedInterval
 from ..internal.types import Interval
 from ..internal.types import Waveforms
@@ -233,8 +238,9 @@ def test_empty_peak_keeps_sensor_schema():
 @mark.parametrize("sampling_time", (0.016, 0.032, 0.1))
 @mark.parametrize("has_daq", (False, True))
 @mark.parametrize("attribute_time", (None, 999))
+@mark.parametrize("database_override", (None, "--database", "-db"))
 def test_main_uses_json_sampling_time_when_writing_dst(tmp_path, monkeypatch, sampling_time,
-                                                    has_daq, attribute_time):
+                                                    has_daq, attribute_time, database_override):
     input_file = tmp_path / "pmaps.h5"
     daq_config = dict(run_number=0, detector="pCOLINA",
                       effective=dict(sample_period_ns=sampling_time * 1000))
@@ -290,15 +296,28 @@ def test_main_uses_json_sampling_time_when_writing_dst(tmp_path, monkeypatch, sa
                             "Plane": ["NP", "NP"],
                             "X": [0.0, 10.0],
                             "Y": [0.0, 20.0]})
-    def load_sensor_position(detector, run):
-        assert detector is Detector.pColina
+    database_file = get_database(Detector.pColina)
+    if database_override:
+        custom_file = tmp_path / "custom-geometry.data"
+        copyfile(database_file, custom_file)
+        database_file = custom_file
+        with closing(sqlite3.connect(database_file)) as connection:
+            with connection:
+                connection.execute("UPDATE SensorPosition SET X = 0, Y = 0 WHERE FirstRun = 0 AND SensorID = 1")
+                connection.execute("UPDATE SensorPosition SET X = 10, Y = 20 WHERE FirstRun = 0 AND SensorID = 2")
+
+    def load_sensor_position(selected_database, run):
+        assert selected_database == database_file
         assert run == 0
         return sensors
 
-    monkeypatch.setattr(dsts, "load_sensor_position", load_sensor_position)
+    if not database_override:
+        monkeypatch.setattr(dsts, "load_sensor_position", load_sensor_position)
     output_file = tmp_path / "dsts.h5"
     arguments = ["-i", str(input_file), "-o", str(output_file),
                  "-c", str(config_file), "-r", "0"]
+    if database_override:
+        arguments.extend([database_override, str(database_file)])
 
     if not has_daq:
         original = b"existing output must survive missing acquisition metadata"

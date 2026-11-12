@@ -1,17 +1,23 @@
 from textwrap import dedent
 from pathlib import Path
 from json import dumps
+from shutil import copyfile
+from contextlib import closing
+
+import sqlite3
 
 import numpy  as np
 import pandas as pd
 import tables as tb
 
 from numpy.testing import assert_array_equal
+from pandas.errors import DatabaseError
 from pytest import mark
 from pytest import raises
 from pytest import warns
 
 from ..internal.symbols import Detector
+from ..database.io import get_database
 from ..internal.types import IndexRange
 from ..internal.types import Waveforms
 from . import dsts
@@ -239,18 +245,21 @@ def test_read_wfms_warns_and_drops_unknown_channels(tmp_path):
 
 
 def test_calibration_gains_follow_waveform_sensor_order():
-    gains = calibration_gains(Detector.pColina, -1, [1000, 11])
+    gains = calibration_gains(get_database(Detector.pColina), -1, [1000, 11])
 
     assert_array_equal(gains, [1., 1.])
 
 
 @mark.parametrize("period_ns", (16, 32, None))
 @mark.parametrize("has_daq", (False, True))
-def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_daq):
+@mark.parametrize("database_override", (None, "--database", "-db"))
+def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_daq, database_override):
     input_file = tmp_path / "waveforms.h5"
     amplitudes = np.zeros((2, 4, 20))
     amplitudes[:, :, 5:8] = -5   # pulse recorded as a negative dip
     channels = np.array([1, 2, 3, 4])
+    if database_override:
+        channels += 10
     events   = np.array([100, 101])
     daq_config = dict(run_number=0, detector="pCOLINA", effective={})
     if period_ns is not None:
@@ -293,6 +302,14 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_daq)
     output_file = tmp_path / "pmaps.h5"
     arguments = ["-i", str(input_file), "-o", str(output_file),
                  "-c", str(config_file), "-r", "0"]
+    if database_override:
+        database_file = tmp_path / "custom-calibration.data"
+        copyfile(get_database(Detector.pColina), database_file)
+        with closing(sqlite3.connect(database_file)) as connection:
+            with connection:
+                connection.execute("UPDATE ChannelMapping SET ChannelID = ChannelID + 10")
+                connection.execute("UPDATE SensorCalibration SET Gain = 2")
+        arguments.extend([database_override, str(database_file)])
     if period_ns is None or not has_daq:
         original = b"existing output must survive missing input metadata"
         output_file.write_bytes(original)
@@ -313,6 +330,7 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_daq)
         assert "sampling_time_microseconds" not in h5out.root._v_attrs
         assert_array_equal(h5out.root.PMaps.events.col("event"), events)
         assert set(h5out.root.PMaps.S1.col("event")) == set(events.tolist())
+        assert_array_equal(h5out.root.PMaps.S1.col("summed"), 10 if database_override else 20)
         assert h5out.root.PMaps.S2.nrows == 0
         assert_array_equal(np.unique(h5out.root.PMaps.S1.col("time")),
                            np.arange(5, 8) * (period_ns / 1000))
@@ -338,6 +356,36 @@ def test_main_rejects_missing_or_unknown_detector_before_opening_output(tmp_path
     with raises(error, match="detector" if detector is None else "unknown"):
         transformer.main(["-i", str(input_file), "-o", str(output_file),
                           "-c", str(config_file), "-r", "0", "--quiet"])
+
+    assert output_file.read_bytes() == original
+
+
+@mark.parametrize("transformer", (pmaps, dsts))
+@mark.parametrize("kind", ("missing", "invalid", "schema"))
+def test_main_database_errors_preserve_existing_output(tmp_path, transformer, kind):
+    input_file = tmp_path / "input.h5"
+    output_file = tmp_path / "output.h5"
+    database_file = tmp_path / "custom.data"
+    config = dict(detector="pCOLINA", effective=dict(sample_period_ns=16))
+    with tb.open_file(input_file, "w") as output:
+        daq = output.create_group("/", "Acquisition")
+        output.create_array(daq, "config_json", dumps(config).encode("utf-8"))
+    output_file.write_bytes(b"existing output must survive database errors")
+    if kind == "invalid":
+        database_file.write_bytes(b"not a SQLite database")
+    elif kind == "schema":
+        with closing(sqlite3.connect(database_file)):
+            pass
+    original = output_file.read_bytes()
+    config_name = transformer.__name__.rsplit(".", 1)[-1] + "_mc.conf"
+    config_file = Path(__file__).resolve().parents[2] / "config" / config_name
+    error = dict(missing=FileNotFoundError,
+                 invalid=DatabaseError, schema=DatabaseError)[kind]
+
+    with raises(error):
+        transformer.main(["-i", str(input_file), "-o", str(output_file),
+                          "-c", str(config_file), "-r", "0", "--quiet",
+                          "--database", str(database_file)])
 
     assert output_file.read_bytes() == original
 

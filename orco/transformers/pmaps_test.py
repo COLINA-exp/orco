@@ -310,7 +310,7 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_daq)
     with tb.open_file(output_file) as h5out:
         assert h5out.root.Acquisition._v_attrs.run_number == 0
         assert h5out.root.Acquisition.config_json.read() == payload
-        assert h5out.root._v_attrs.sampling_time_microseconds == period_ns / 1000
+        assert "sampling_time_microseconds" not in h5out.root._v_attrs
         assert_array_equal(h5out.root.PMaps.events.col("event"), events)
         assert set(h5out.root.PMaps.S1.col("event")) == set(events.tolist())
         assert h5out.root.PMaps.S2.nrows == 0

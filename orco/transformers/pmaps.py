@@ -4,9 +4,8 @@ Build calibrated waveform slices containing signal (PMaps) from raw HDF5 wavefor
 
 Each event is baseline-subtracted, polarity-inverted and gain-corrected before
 independent S1/S2 searches in the summed waveform. Output tables retain padded
-peak samples and sensor identifiers; sampling time is stored in microseconds as
-root metadata. The detector and sampling interval come from acquisition JSON;
-the full ``/Acquisition`` group is copied to the output.
+peak samples and sensor identifiers. The detector and sampling interval come
+from DAQ JSON; the full ``/Acquisition`` group is copied to the output.
 See ``docs/configuration.md`` and ``docs/formats.md``.
 """
 from __future__ import annotations
@@ -316,7 +315,6 @@ def main(argv=None):
 
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
         copy_daq_config(args.input_file, outfile)
-        outfile.root._v_attrs.sampling_time_microseconds = sampling_time
 
         for i, data in enumerate(read_wfms(args.input_file, mapping, sampling_time)):
             if not args.quiet:

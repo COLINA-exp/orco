@@ -75,11 +75,9 @@ acquisition-only subsection and is not used as a fallback.
 
 ## PMAP output
 
-The root attribute `sampling_time_microseconds` is the interval between samples,
-converted from `effective.sample_period_ns` in the raw file's acquisition JSON.
-This attribute is informational: the DST transformer reads its sampling interval
-from the copied acquisition JSON, including for one-sample peaks. It does not
-require or fall back to this attribute.
+Sampling time is preserved in the copied DAQ JSON as `effective.sample_period_ns`.
+No separate sampling-time root attribute is written. Both transformers convert
+the JSON value to internal microseconds with the shared unit helper.
 
 | Table | Columns |
 | --- | --- |

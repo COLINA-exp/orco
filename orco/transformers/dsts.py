@@ -4,8 +4,10 @@ Generate point-like data-summary tables (DSTs) from PMAP files.
 
 Peak cuts are applied before event-count cuts. Passing events contribute every
 S1/S2 combination, with S1 multiplicity from FP sensors and S2 multiplicity and
-barycenters from NP sensors. The input's ``/Acquisition`` group, when present,
-is copied to the output. See ``docs/formats.md`` for schemas and units.
+barycenters from NP sensors. The detector and sampling interval come from the
+input's acquisition JSON, and the full ``/Acquisition`` group is copied to the
+output.
+See ``docs/formats.md`` for schemas and units.
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ from ..internal.units   import units
 from ..internal.units   import unit_scope
 from ..io.hdf5          import copy_acquisition
 from ..io.hdf5          import df_writer
+from ..io.hdf5          import get_sampling_time
+from ..io.hdf5          import read_acquisition_config
 from ..io.structures    import dst_types
 
 from typing import Any
@@ -73,15 +77,15 @@ class PeakPropertiesConfig:
 class DstConfig:
     s1_props: PeakPropertiesConfig
     s2_props: PeakPropertiesConfig
-    detector: Detector
 
     @classmethod
     def load(cls, filename: Path) -> DstConfig:
         """
         Load a DST configuration and reduce quantities to internal units.
 
-        The config file must define ``detector`` and the `PeakPropertiesConfig`
-        fields with the corresponding ``s1_``/``s2_`` prefixes.
+        The config file must define the `PeakPropertiesConfig` fields with the
+        corresponding ``s1_``/``s2_`` prefixes. The detector comes from the
+        input's acquisition JSON, not this configuration.
 
         Widths require time quantities, heights require pe/us and integrals and
         charge thresholds require pe. Count and multiplicity limits must be
@@ -91,7 +95,7 @@ class DstConfig:
             filename: Python config file defining the DST settings.
 
         Returns:
-            The detector and the parsed S1/S2 selection limits.
+            The parsed S1/S2 selection limits.
         """
         scope = unit_scope()
         scope.update(all_symbols())
@@ -107,22 +111,19 @@ def read_pmaps(input_file: Path) -> Iterator[Mapping[str, Any]]:
     """
     Yield each PMAP event with its S1 and S2 peak tables.
 
-    The sampling interval is read from the root ``sampling_time_microseconds``
-    HDF5 attribute written by the PMAP transformer. Peak tables retain their
-    stored columns, including ``event`` and ``peak``. Both complete peak tables
-    are loaded into memory and the file is closed before any events are yielded.
+    Peak tables retain their stored columns, including ``event`` and ``peak``.
+    Both complete peak tables are loaded into memory and the file is closed
+    before any events are yielded.
     Events without peaks are still yielded with empty dataframes.
 
     Args:
         input_file: PMAP HDF5 file to read.
 
     Yields:
-        One mapping per event with ``event``, ``s1s``, ``s2s`` and
-        ``sampling_time`` (in microseconds).
+        One mapping per event with ``event``, ``s1s`` and ``s2s``. Acquisition
+        metadata is read separately by the caller.
     """
     with tb.open_file(input_file) as infile:
-        sampling_time = infile.root._v_attrs.sampling_time_microseconds
-
         events = infile.root.PMaps.events.read()["event"]
         s1s    = pd.DataFrame(infile.root.PMaps.S1.read(), columns=infile.root.PMaps.S1.colnames)
         s2s    = pd.DataFrame(infile.root.PMaps.S2.read(), columns=infile.root.PMaps.S2.colnames)
@@ -131,8 +132,7 @@ def read_pmaps(input_file: Path) -> Iterator[Mapping[str, Any]]:
         this_evt = lambda df: df.event == event
         yield dict(event         = event,
                    s1s           = s1s.loc[this_evt],
-                   s2s           = s2s.loc[this_evt],
-                   sampling_time = sampling_time)
+                   s2s           = s2s.loc[this_evt])
 
 
 def sensor_charges(peak         : pd.DataFrame,
@@ -385,7 +385,8 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     Reads PMAP events, applies the configured S1/S2 peak selections, and
     writes blame, event-count and point-like tables to an HDF5 output file.
-    Copies the input's ``/Acquisition`` group when present.
+    Reads the detector and sampling interval from acquisition JSON and copies
+    ``/Acquisition``.
 
     Args:
         argv: Optional command-line arguments, excluding the program name.
@@ -406,8 +407,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.input_file.resolve() == args.output_file.resolve():
         parser.error("input and output files must be different")
 
-    config     = DstConfig.load(args.config_file)
-    sensors    = load_sensor_position(config.detector, args.run_number)
+    config             = DstConfig.load(args.config_file)
+    acquisition_config = read_acquisition_config(args.input_file)
+    detector           = Detector.get(acquisition_config["detector"])
+    sampling_time      = get_sampling_time(acquisition_config)
+
+    sensors    = load_sensor_position(detector, args.run_number)
     sensors_np = sensors.loc[sensors.Plane == "NP"]
     sensors_fp = sensors.loc[sensors.Plane == "FP"]
     ids_np     = sensors_np.SensorID.to_numpy()
@@ -419,8 +424,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             if not args.quiet:
                 print(f"\rProcessing event {i:>05}", end="", flush=True)
 
-            blame_s1s = blame_peaks(data["s1s"], config.s1_props, ids_fp, data["sampling_time"])
-            blame_s2s = blame_peaks(data["s2s"], config.s2_props, ids_np, data["sampling_time"])
+            blame_s1s = blame_peaks(data["s1s"], config.s1_props, ids_fp, sampling_time)
+            blame_s2s = blame_peaks(data["s2s"], config.s2_props, ids_np, sampling_time)
             blame_s1s.insert(0, "event", data["event"])
             blame_s2s.insert(0, "event", data["event"])
             df_writer(outfile, blame_s1s, "DST", "S1Blame", str_col_length=64)
@@ -440,10 +445,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 rows = []
                 for s1no, s1 in s1s.groupby("peak"):
                     for s2no, s2 in s2s.groupby("peak"):
-                        x, y = peak_barycenter(s2, sensors_np, config.s2_props.threshold, data["sampling_time"])
+                        x, y = peak_barycenter(s2, sensors_np, config.s2_props.threshold, sampling_time)
 
-                        s1_summary = summarize_peak(s1, config.s1_props.threshold, ids_fp, data["sampling_time"]).add_prefix("s1_")
-                        s2_summary = summarize_peak(s2, config.s2_props.threshold, ids_np, data["sampling_time"]).add_prefix("s2_")
+                        s1_summary = summarize_peak(s1, config.s1_props.threshold, ids_fp, sampling_time).add_prefix("s1_")
+                        s2_summary = summarize_peak(s2, config.s2_props.threshold, ids_np, sampling_time).add_prefix("s2_")
 
                         row = pd.concat([s1_summary.to_frame().T, s2_summary.to_frame().T], axis=1)
                         row.insert(0, "event", data["event"])

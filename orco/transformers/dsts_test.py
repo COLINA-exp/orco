@@ -1,4 +1,6 @@
 from textwrap import dedent
+from pathlib import Path
+from json import dumps
 
 import numpy as np
 import pandas as pd
@@ -8,6 +10,7 @@ from pytest import approx
 from pytest import mark
 from pytest import raises
 
+from ..internal.symbols import Detector
 from ..internal.types import ClosedInterval
 from ..internal.types import Interval
 from ..internal.types import Waveforms
@@ -50,8 +53,6 @@ def peak_properties_config(**overrides):
 def test_dst_config_loads_properties_and_units(tmp_path, field, expression):
     filename = tmp_path / "dsts.conf"
     filename.write_text(dedent("""
-        detector = pColina
-
         s1_min_count = 1
         s1_max_count = 3
         s1_min_width = 200 * ns
@@ -85,7 +86,7 @@ def test_dst_config_loads_properties_and_units(tmp_path, field, expression):
 
     config = DstConfig.load(filename)
 
-    assert config.detector.name == "pColina"
+    assert not hasattr(config, "detector")
     assert config.s1_props.count == ClosedInterval(1, 3)
     assert config.s1_props.width == Interval(0.2, 1)
     assert config.s1_props.height == Interval(2, 10)
@@ -231,8 +232,13 @@ def test_empty_peak_keeps_sensor_schema():
 
 @mark.parametrize("sampling_time", (0.016, 0.032, 0.1))
 @mark.parametrize("has_acquisition", (False, True))
-def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch, sampling_time, has_acquisition):
+@mark.parametrize("attribute_time", (None, 999))
+def test_main_uses_json_sampling_time_when_writing_dst(tmp_path, monkeypatch, sampling_time,
+                                                    has_acquisition, attribute_time):
     input_file = tmp_path / "pmaps.h5"
+    acquisition_config = dict(run_number=0, detector="pCOLINA",
+                              effective=dict(sample_period_ns=sampling_time * 1000))
+    payload = dumps(acquisition_config).encode("utf-8")
     peaks = pd.DataFrame({"event": [42, 42],
                           "peak": [0, 0],
                           "time": [1.0, 1.0 + sampling_time],
@@ -243,15 +249,18 @@ def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch, sa
         if has_acquisition:
             acquisition = h5out.create_group("/", "Acquisition")
             acquisition._v_attrs.run_number = 0
-            h5out.create_array(acquisition, "config_json", b'{"run_number": 0}')
-        h5out.root._v_attrs.sampling_time_microseconds = sampling_time
+            h5out.create_array(acquisition, "config_json", payload)
+        if attribute_time is not None:
+            h5out.root._v_attrs.sampling_time_microseconds = attribute_time
         df_writer(h5out, pd.DataFrame({"event": [42]}), "PMaps", "events")
         df_writer(h5out, peaks, "PMaps", "S1")
         df_writer(h5out, peaks, "PMaps", "S2")
 
     config_file = tmp_path / "dsts.conf"
     config_file.write_text(dedent("""
-        detector = pColina
+        # A stale setting must not override the acquisition detector.
+        detector = Colina
+        sampling_time = 999 * microsecond
 
         s1_min_count = 1
         s1_max_count = 1
@@ -281,19 +290,29 @@ def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch, sa
                             "Plane": ["NP", "NP"],
                             "X": [0.0, 10.0],
                             "Y": [0.0, 20.0]})
-    monkeypatch.setattr(dsts, "load_sensor_position", lambda detector, run: sensors)
-    output_file = tmp_path / "dsts.h5"
+    def load_sensor_position(detector, run):
+        assert detector is Detector.pColina
+        assert run == 0
+        return sensors
 
-    dsts.main(["-i", str(input_file),
-               "-o", str(output_file),
-               "-c", str(config_file),
-               "-r", "0"])
+    monkeypatch.setattr(dsts, "load_sensor_position", load_sensor_position)
+    output_file = tmp_path / "dsts.h5"
+    arguments = ["-i", str(input_file), "-o", str(output_file),
+                 "-c", str(config_file), "-r", "0"]
+
+    if not has_acquisition:
+        original = b"existing output must survive missing acquisition metadata"
+        output_file.write_bytes(original)
+        with raises(tb.NoSuchNodeError, match="/Acquisition/config_json"):
+            dsts.main(arguments)
+        assert output_file.read_bytes() == original
+        return
+
+    dsts.main(arguments)
 
     with tb.open_file(output_file) as h5out:
-        assert ("Acquisition" in h5out.root) == has_acquisition
-        if has_acquisition:
-            assert h5out.root.Acquisition._v_attrs.run_number == 0
-            assert h5out.root.Acquisition.config_json.read() == b'{"run_number": 0}'
+        assert h5out.root.Acquisition._v_attrs.run_number == 0
+        assert h5out.root.Acquisition.config_json.read() == payload
         counts = pd.DataFrame(h5out.root.DST.EventPeakCount.read(),
                               columns=h5out.root.DST.EventPeakCount.colnames)
         pointlike = pd.DataFrame(h5out.root.DST.Pointlike.read(),
@@ -311,6 +330,46 @@ def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch, sa
     assert pointlike.loc[0, "s2_multiplicity"] == 2
     assert pointlike.loc[0, "x"] == approx(5)
     assert pointlike.loc[0, "y"] == approx(10)
+
+
+@mark.parametrize("metadata", ({}, dict(effective={})))
+def test_main_rejects_missing_json_sampling_time_before_opening_output(tmp_path, metadata):
+    input_file = tmp_path / "pmaps.h5"
+    output_file = tmp_path / "dsts.h5"
+    config = dict(detector="pCOLINA", **metadata)
+    with tb.open_file(input_file, "w") as output:
+        acquisition = output.create_group("/", "Acquisition")
+        output.create_array(acquisition, "config_json", dumps(config).encode("utf-8"))
+        output.root._v_attrs.sampling_time_microseconds = 0.016
+    original = b"existing output must survive missing JSON sampling metadata"
+    output_file.write_bytes(original)
+    config_file = Path(__file__).resolve().parents[2] / "config" / "dsts_mc.conf"
+
+    with raises(KeyError):
+        dsts.main(["-i", str(input_file), "-o", str(output_file),
+                   "-c", str(config_file), "-r", "0", "--quiet"])
+
+    assert output_file.read_bytes() == original
+
+
+def test_read_pmaps_yields_events_without_reading_sampling_metadata(tmp_path):
+    input_file = tmp_path / "pmaps.h5"
+    peaks = pd.DataFrame(dict(event=[42], peak=[0], time=[0.1], summed=[2.]))
+    with tb.open_file(input_file, "w") as output:
+        df_writer(output, pd.DataFrame(dict(event=[42, 7, 99])), "PMaps", "events")
+        df_writer(output, peaks, "PMaps", "S1")
+        df_writer(output, peaks.assign(event=7), "PMaps", "S2")
+
+    events = list(read_pmaps(input_file))
+
+    assert [data["event"] for data in events] == [42, 7, 99]
+    assert all(set(data) == {"event", "s1s", "s2s"} for data in events)
+    assert events[0]["s1s"].to_dict("records") == peaks.to_dict("records")
+    assert events[1]["s2s"].to_dict("records") == peaks.assign(event=7).to_dict("records")
+    assert events[0]["s2s"].empty
+    assert events[1]["s1s"].empty
+    assert events[2]["s1s"].empty
+    assert events[2]["s2s"].empty
 
 
 @mark.parametrize("sampling_time", (0.016, 0.032, 0.5))

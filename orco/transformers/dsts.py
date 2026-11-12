@@ -31,10 +31,10 @@ from ..internal.types   import Interval
 from ..internal.units   import Charge
 from ..internal.units   import units
 from ..internal.units   import unit_scope
-from ..io.hdf5          import copy_acquisition
+from ..io.hdf5          import copy_daq_config
 from ..io.hdf5          import df_writer
 from ..io.hdf5          import get_sampling_time
-from ..io.hdf5          import read_acquisition_config
+from ..io.hdf5          import read_daq_config
 from ..io.structures    import dst_types
 
 from typing import Any
@@ -407,10 +407,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.input_file.resolve() == args.output_file.resolve():
         parser.error("input and output files must be different")
 
-    config             = DstConfig.load(args.config_file)
-    acquisition_config = read_acquisition_config(args.input_file)
-    detector           = Detector.get(acquisition_config["detector"])
-    sampling_time      = get_sampling_time(acquisition_config)
+    config        = DstConfig.load(args.config_file)
+    daq_config    = read_daq_config(args.input_file)
+    detector      = Detector.get(daq_config["detector"])
+    sampling_time = get_sampling_time(daq_config)
 
     sensors    = load_sensor_position(detector, args.run_number)
     sensors_np = sensors.loc[sensors.Plane == "NP"]
@@ -419,7 +419,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     ids_fp     = sensors_fp.SensorID.to_numpy()
 
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
-        copy_acquisition(args.input_file, outfile)
+        copy_daq_config(args.input_file, outfile)
         for i, data in enumerate(read_pmaps(args.input_file)):
             if not args.quiet:
                 print(f"\rProcessing event {i:>05}", end="", flush=True)

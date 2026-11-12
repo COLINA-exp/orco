@@ -28,7 +28,7 @@ from .. internal.units      import reduce_to_internal
 from .. internal.units      import units
 
 
-def copy_acquisition(input_file: str | Path, output_file: tb.File) -> None:
+def copy_daq_config(input_file: str | Path, output_file: tb.File) -> None:
     """
     Copy the full ``/Acquisition`` group to an open output file.
 
@@ -49,7 +49,7 @@ def copy_acquisition(input_file: str | Path, output_file: tb.File) -> None:
             infile.copy_node("/Acquisition", newparent=output_file.root, recursive=True)
 
 
-def read_acquisition_config(input_file: str | Path) -> dict[str, Any]:
+def read_daq_config(input_file: str | Path) -> dict[str, Any]:
     """
     Read the full run configuration from ``/Acquisition/config_json``.
 
@@ -81,7 +81,7 @@ def get_sampling_time(config: Mapping[str, Any]) -> float:
     Return the period in internal units.
 
     Args:
-        config: Acquisition configuration returned by ``read_acquisition_config``.
+        config: Acquisition configuration returned by ``read_daq_config``.
 
     Returns:
         sampling_time

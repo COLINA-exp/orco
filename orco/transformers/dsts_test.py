@@ -231,14 +231,14 @@ def test_empty_peak_keeps_sensor_schema():
 
 
 @mark.parametrize("sampling_time", (0.016, 0.032, 0.1))
-@mark.parametrize("has_acquisition", (False, True))
+@mark.parametrize("has_daq", (False, True))
 @mark.parametrize("attribute_time", (None, 999))
 def test_main_uses_json_sampling_time_when_writing_dst(tmp_path, monkeypatch, sampling_time,
-                                                    has_acquisition, attribute_time):
+                                                    has_daq, attribute_time):
     input_file = tmp_path / "pmaps.h5"
-    acquisition_config = dict(run_number=0, detector="pCOLINA",
-                              effective=dict(sample_period_ns=sampling_time * 1000))
-    payload = dumps(acquisition_config).encode("utf-8")
+    daq_config = dict(run_number=0, detector="pCOLINA",
+                      effective=dict(sample_period_ns=sampling_time * 1000))
+    payload = dumps(daq_config).encode("utf-8")
     peaks = pd.DataFrame({"event": [42, 42],
                           "peak": [0, 0],
                           "time": [1.0, 1.0 + sampling_time],
@@ -246,10 +246,10 @@ def test_main_uses_json_sampling_time_when_writing_dst(tmp_path, monkeypatch, sa
                           "sensor_001": [1.0, 2.0],
                           "sensor_002": [1.0, 2.0]})
     with tb.open_file(input_file, "w") as h5out:
-        if has_acquisition:
-            acquisition = h5out.create_group("/", "Acquisition")
-            acquisition._v_attrs.run_number = 0
-            h5out.create_array(acquisition, "config_json", payload)
+        if has_daq:
+            daq = h5out.create_group("/", "Acquisition")
+            daq._v_attrs.run_number = 0
+            h5out.create_array(daq, "config_json", payload)
         if attribute_time is not None:
             h5out.root._v_attrs.sampling_time_microseconds = attribute_time
         df_writer(h5out, pd.DataFrame({"event": [42]}), "PMaps", "events")
@@ -300,7 +300,7 @@ def test_main_uses_json_sampling_time_when_writing_dst(tmp_path, monkeypatch, sa
     arguments = ["-i", str(input_file), "-o", str(output_file),
                  "-c", str(config_file), "-r", "0"]
 
-    if not has_acquisition:
+    if not has_daq:
         original = b"existing output must survive missing acquisition metadata"
         output_file.write_bytes(original)
         with raises(tb.NoSuchNodeError, match="/Acquisition/config_json"):
@@ -338,8 +338,8 @@ def test_main_rejects_missing_json_sampling_time_before_opening_output(tmp_path,
     output_file = tmp_path / "dsts.h5"
     config = dict(detector="pCOLINA", **metadata)
     with tb.open_file(input_file, "w") as output:
-        acquisition = output.create_group("/", "Acquisition")
-        output.create_array(acquisition, "config_json", dumps(config).encode("utf-8"))
+        daq = output.create_group("/", "Acquisition")
+        output.create_array(daq, "config_json", dumps(config).encode("utf-8"))
         output.root._v_attrs.sampling_time_microseconds = 0.016
     original = b"existing output must survive missing JSON sampling metadata"
     output_file.write_bytes(original)

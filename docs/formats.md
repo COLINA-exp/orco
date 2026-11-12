@@ -57,9 +57,9 @@ not replaced by defaults.
 configuration as JSON. A standalone reader is available:
 
 ```python
-from orco.io.hdf5 import read_acquisition_config
+from orco.io.hdf5 import read_daq_config
 
-configuration = read_acquisition_config("waveforms.h5")
+configuration = read_daq_config("waveforms.h5")
 ```
 
 It returns a dictionary with nested JSON values, opens the file read-only, and

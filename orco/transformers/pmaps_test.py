@@ -245,22 +245,22 @@ def test_calibration_gains_follow_waveform_sensor_order():
 
 
 @mark.parametrize("period_ns", (16, 32, None))
-@mark.parametrize("has_acquisition", (False, True))
-def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_acquisition):
+@mark.parametrize("has_daq", (False, True))
+def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_daq):
     input_file = tmp_path / "waveforms.h5"
     amplitudes = np.zeros((2, 4, 20))
     amplitudes[:, :, 5:8] = -5   # pulse recorded as a negative dip
     channels = np.array([1, 2, 3, 4])
     events   = np.array([100, 101])
-    acquisition_config = dict(run_number=0, detector="pCOLINA", effective={})
+    daq_config = dict(run_number=0, detector="pCOLINA", effective={})
     if period_ns is not None:
-        acquisition_config["effective"]["sample_period_ns"] = period_ns
-    payload = dumps(acquisition_config).encode("utf-8")
+        daq_config["effective"]["sample_period_ns"] = period_ns
+    payload = dumps(daq_config).encode("utf-8")
     with tb.open_file(input_file, "w") as h5out:
-        if has_acquisition:
-            acquisition = h5out.create_group("/", "Acquisition")
-            acquisition._v_attrs.run_number = 0
-            h5out.create_array(acquisition, "config_json", payload)
+        if has_daq:
+            daq = h5out.create_group("/", "Acquisition")
+            daq._v_attrs.run_number = 0
+            h5out.create_array(daq, "config_json", payload)
         group = h5out.create_group("/", "Waveforms")
         # The old waveform attribute must not override or replace the JSON.
         group._v_attrs.sample_period_ns = 999
@@ -293,11 +293,11 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_acqu
     output_file = tmp_path / "pmaps.h5"
     arguments = ["-i", str(input_file), "-o", str(output_file),
                  "-c", str(config_file), "-r", "0"]
-    if period_ns is None or not has_acquisition:
+    if period_ns is None or not has_daq:
         original = b"existing output must survive missing input metadata"
         output_file.write_bytes(original)
-        error = KeyError if has_acquisition else tb.NoSuchNodeError
-        missing = "sample_period_ns" if has_acquisition else "/Acquisition/config_json"
+        error = KeyError if has_daq else tb.NoSuchNodeError
+        missing = "sample_period_ns" if has_daq else "/Acquisition/config_json"
         with raises(error, match=missing):
             main(arguments)
         assert output_file.read_bytes() == original
@@ -327,8 +327,8 @@ def test_main_rejects_missing_or_unknown_detector_before_opening_output(tmp_path
     if detector is not None:
         config["detector"] = detector
     with tb.open_file(input_file, "w") as output:
-        acquisition = output.create_group("/", "Acquisition")
-        output.create_array(acquisition, "config_json", dumps(config).encode("utf-8"))
+        daq = output.create_group("/", "Acquisition")
+        output.create_array(daq, "config_json", dumps(config).encode("utf-8"))
     original = b"existing output must survive missing or unknown detector metadata"
     output_file.write_bytes(original)
     config_name = transformer.__name__.rsplit(".", 1)[-1] + "_mc.conf"

@@ -34,10 +34,10 @@ from ..internal.types   import Waveforms
 from ..internal.units   import Amplitude
 from ..internal.units   import Time
 from ..internal.units   import unit_scope
-from ..io.hdf5          import copy_acquisition
+from ..io.hdf5          import copy_daq_config
 from ..io.hdf5          import df_writer
 from ..io.hdf5          import get_sampling_time
-from ..io.hdf5          import read_acquisition_config
+from ..io.hdf5          import read_daq_config
 from ..reco.waveforms   import calibrate
 from ..reco.waveforms   import find_windows
 from ..reco.waveforms   import invert_polarity
@@ -309,13 +309,13 @@ def main(argv=None):
         parser.error("input and output files must be different")
 
     config = PMapConfig.load(args.config_file)
-    acquisition_config = read_acquisition_config(args.input_file)
-    detector           = Detector.get(acquisition_config["detector"])
-    sampling_time      = get_sampling_time(acquisition_config)
-    mapping            = load_channel_mapping(detector, args.run_number)
+    daq_config    = read_daq_config(args.input_file)
+    detector      = Detector.get(daq_config["detector"])
+    sampling_time = get_sampling_time(daq_config)
+    mapping       = load_channel_mapping(detector, args.run_number)
 
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
-        copy_acquisition(args.input_file, outfile)
+        copy_daq_config(args.input_file, outfile)
         outfile.root._v_attrs.sampling_time_microseconds = sampling_time
 
         for i, data in enumerate(read_wfms(args.input_file, mapping, sampling_time)):

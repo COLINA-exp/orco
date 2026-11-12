@@ -12,10 +12,10 @@ from pytest import warns
 
 from ..internal.exceptions import TableMismatch
 from . hdf5                import _decode_str_columns
-from . hdf5                import copy_acquisition
+from . hdf5                import copy_daq_config
 from . hdf5                import df_writer
 from . hdf5                import get_sampling_time
-from . hdf5                import read_acquisition_config
+from . hdf5                import read_daq_config
 
 
 @mark.parametrize("period_ns", (16, 32.5))
@@ -31,30 +31,30 @@ def test_get_sampling_time_reports_missing_json_metadata(config):
         get_sampling_time(config)
 
 
-def test_copy_acquisition_preserves_hierarchy_data_and_attributes(tmp_path):
+def test_copy_daq_config_preserves_hierarchy_data_and_attributes(tmp_path):
     input_file = tmp_path / "input.h5"
     output_file = tmp_path / "output.h5"
     payload = b'{"run_number": 3, "effective": {"sample_period_ns": 16}}'
     records = np.array([(0, 1.5), (1, 2.5)], dtype=[("channel", "i4"), ("gain", "f8")])
     with tb.open_file(input_file, "w") as source:
-        acquisition = source.create_group("/", "Acquisition", "Acquisition metadata")
-        acquisition._v_attrs.run_number = 3
-        config = source.create_array(acquisition, "config_json", payload, "Full configuration")
+        daq = source.create_group("/", "Acquisition", "Acquisition metadata")
+        daq._v_attrs.run_number = 3
+        config = source.create_array(daq, "config_json", payload, "Full configuration")
         config._v_attrs.encoding = "utf-8"
-        configuration = source.create_group(acquisition, "Configuration", "Configuration subsection")
+        configuration = source.create_group(daq, "Configuration", "Configuration subsection")
         configuration._v_attrs.version = 1
         channels = source.create_carray(configuration, "channels", obj=np.arange(4),
                                         filters=tb.Filters(complevel=3, complib="zlib"))
         channels._v_attrs.description = "Enabled channels"
         table = source.create_table(configuration, "calibration", obj=records)
         table._v_attrs.units = "ADC * us / pe"
-        source.create_group(acquisition, "Empty")
+        source.create_group(daq, "Empty")
         source.create_array("/", "unrelated", [1, 2])
     original = input_file.read_bytes()
 
     with tb.open_file(output_file, "w") as destination:
         destination.create_group("/", "PMaps")
-        copy_acquisition(input_file, destination)
+        copy_daq_config(input_file, destination)
         assert "PMaps" in destination.root
         assert "unrelated" not in destination.root
 
@@ -74,7 +74,7 @@ def test_copy_acquisition_preserves_hierarchy_data_and_attributes(tmp_path):
                 assert_array_equal(copied.read(), node.read())
 
 
-def test_copy_acquisition_skips_missing_group(tmp_path):
+def test_copy_daq_config_skips_missing_group(tmp_path):
     input_file = tmp_path / "input.h5"
     output_file = tmp_path / "output.h5"
     with tb.open_file(input_file, "w"):
@@ -82,23 +82,23 @@ def test_copy_acquisition_skips_missing_group(tmp_path):
 
     with tb.open_file(output_file, "w") as destination:
         destination.create_array("/", "existing", [1, 2])
-        copy_acquisition(input_file, destination)
+        copy_daq_config(input_file, destination)
         assert "Acquisition" not in destination.root
         assert_array_equal(destination.root.existing.read(), [1, 2])
 
 
-def test_copy_acquisition_does_not_overwrite_existing_metadata(tmp_path):
+def test_copy_daq_config_does_not_overwrite_existing_metadata(tmp_path):
     input_file = tmp_path / "input.h5"
     output_file = tmp_path / "output.h5"
     with tb.open_file(input_file, "w") as source:
         source.create_group("/", "Acquisition")
 
     with tb.open_file(output_file, "w") as destination:
-        acquisition = destination.create_group("/", "Acquisition")
-        destination.create_array(acquisition, "config_json", b'{"original": true}')
+        daq = destination.create_group("/", "Acquisition")
+        destination.create_array(daq, "config_json", b'{"original": true}')
         with raises(tb.NodeError):
-            copy_acquisition(input_file, destination)
-        assert acquisition.config_json.read() == b'{"original": true}'
+            copy_daq_config(input_file, destination)
+        assert daq.config_json.read() == b'{"original": true}'
 
 
 @mark.parametrize("config", ({}, dict(run_number=3,
@@ -106,19 +106,19 @@ def test_copy_acquisition_does_not_overwrite_existing_metadata(tmp_path):
                                      channels=[0, 1, 2], enabled=True,
                                      optional=None, label="calibraci\u00f3n")))
 @mark.parametrize("numpy_scalar", (False, True))
-def test_read_acquisition_config_returns_nested_json_without_modifying_input(tmp_path, config, numpy_scalar):
+def test_read_daq_config_returns_nested_json_without_modifying_input(tmp_path, config, numpy_scalar):
     filename = tmp_path / "waveforms.h5"
     payload = dumps(config, ensure_ascii=False).encode("utf-8")
     if numpy_scalar:
         payload = np.asarray(payload)
     with tb.open_file(filename, "w") as output:
-        acquisition = output.create_group("/", "Acquisition")
-        output.create_array(acquisition, "config_json", payload)
-        subsection = output.create_group(acquisition, "Configuration")
+        daq = output.create_group("/", "Acquisition")
+        output.create_array(daq, "config_json", payload)
+        subsection = output.create_group(daq, "Configuration")
         output.create_array(subsection, "config_json", b'{"different": true}')
     original = filename.read_bytes()
 
-    result = read_acquisition_config(filename)
+    result = read_daq_config(filename)
 
     assert result == config
     assert filename.read_bytes() == original
@@ -127,25 +127,25 @@ def test_read_acquisition_config_returns_nested_json_without_modifying_input(tmp
         assert output.isopen
 
 
-@mark.parametrize("has_acquisition", (False, True))
-def test_read_acquisition_config_reports_missing_node(tmp_path, has_acquisition):
+@mark.parametrize("has_daq", (False, True))
+def test_read_daq_config_reports_missing_node(tmp_path, has_daq):
     filename = tmp_path / "waveforms.h5"
     with tb.open_file(filename, "w") as output:
-        if has_acquisition:
+        if has_daq:
             output.create_group("/", "Acquisition")
 
     with raises(tb.NoSuchNodeError):
-        read_acquisition_config(filename)
+        read_daq_config(filename)
 
 
-def test_read_acquisition_config_reports_invalid_json(tmp_path):
+def test_read_daq_config_reports_invalid_json(tmp_path):
     filename = tmp_path / "waveforms.h5"
     with tb.open_file(filename, "w") as output:
-        acquisition = output.create_group("/", "Acquisition")
-        output.create_array(acquisition, "config_json", b"{invalid JSON}")
+        daq = output.create_group("/", "Acquisition")
+        output.create_array(daq, "config_json", b"{invalid JSON}")
 
     with raises(JSONDecodeError):
-        read_acquisition_config(filename)
+        read_daq_config(filename)
 
 
 def test_decode_str_columns_preserves_numeric_columns():

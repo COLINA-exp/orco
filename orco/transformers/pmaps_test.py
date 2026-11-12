@@ -14,6 +14,8 @@ from pytest import warns
 from ..internal.symbols import Detector
 from ..internal.types import IndexRange
 from ..internal.types import Waveforms
+from . import dsts
+from . import pmaps
 from . pmaps          import PeakConfig
 from . pmaps          import PMapConfig
 from . pmaps          import calibration_gains
@@ -74,8 +76,6 @@ def test_peak_config_rejects_invalid_ranges(overrides):
 def test_pmap_config_loads_transformer_settings(tmp_path, field, expression):
     filename = tmp_path / "pmaps.conf"
     filename.write_text(dedent("""
-        detector = pColina
-
         s1_min_samples = 1
         s1_max_samples = 10
         s1_min_time = 0 * microsecond
@@ -114,7 +114,7 @@ def test_pmap_config_loads_transformer_settings(tmp_path, field, expression):
     assert config.s2.max_time == 2.0
     assert config.s2.threshold == 6
     assert not hasattr(config, "sampling_time")
-    assert config.detector is Detector.pColina
+    assert not hasattr(config, "detector")
 
 
 def test_select_windows_includes_time_and_length_boundaries():
@@ -154,8 +154,7 @@ def test_create_pmap_handles_empty_and_nonempty_peak_sets():
                          sensors=sensors,
                          amplitudes=amplitudes)
     config = PMapConfig(peak_config(),
-                        peak_config(threshold=10),
-                        Detector.pColina)
+                        peak_config(threshold=10))
 
     s1, s2 = create_pmap(42, waveforms, np.ones(2), config, SAMPLING_TIME)
 
@@ -178,8 +177,7 @@ def test_create_pmap_peak_height_matches_summed_waveform():
                           sensors=sensors,
                           amplitudes=amplitudes)
     config = PMapConfig(peak_config(),
-                        peak_config(threshold=11),
-                        Detector.pColina)
+                        peak_config(threshold=11))
 
     s1, s2 = create_pmap(7, waveforms, np.ones(len(sensors)), config, SAMPLING_TIME)
 
@@ -255,7 +253,7 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_acqu
     amplitudes[:, :, 5:8] = -5   # pulse recorded as a negative dip
     channels = np.array([1, 2, 3, 4])
     events   = np.array([100, 101])
-    acquisition_config = dict(run_number=0, effective={})
+    acquisition_config = dict(run_number=0, detector="pCOLINA", effective={})
     if period_ns is not None:
         acquisition_config["effective"]["sample_period_ns"] = period_ns
     payload = dumps(acquisition_config).encode("utf-8")
@@ -273,7 +271,8 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_acqu
 
     config_file = tmp_path / "pmaps.conf"
     config_file.write_text(dedent("""
-        detector = pColina
+        # A stale setting must not override the acquisition detector.
+        detector = Colina
 
         s1_min_samples = 1
         s1_max_samples = 20
@@ -331,6 +330,30 @@ def test_get_sampling_time_converts_json_nanoseconds_to_microseconds(period_ns):
 def test_get_sampling_time_reports_missing_json_metadata(config):
     with raises(KeyError):
         get_sampling_time(config)
+
+
+@mark.parametrize("transformer", (pmaps, dsts))
+@mark.parametrize("detector", (None, "unknown"))
+def test_main_rejects_missing_or_unknown_detector_before_opening_output(tmp_path, transformer, detector):
+    input_file = tmp_path / "input.h5"
+    output_file = tmp_path / "output.h5"
+    config = dict(effective=dict(sample_period_ns=16))
+    if detector is not None:
+        config["detector"] = detector
+    with tb.open_file(input_file, "w") as output:
+        acquisition = output.create_group("/", "Acquisition")
+        output.create_array(acquisition, "config_json", dumps(config).encode("utf-8"))
+    original = b"existing output must survive missing or unknown detector metadata"
+    output_file.write_bytes(original)
+    config_name = transformer.__name__.rsplit(".", 1)[-1] + "_mc.conf"
+    config_file = Path(__file__).resolve().parents[2] / "config" / config_name
+
+    error = KeyError if detector is None else ValueError
+    with raises(error, match="detector" if detector is None else "unknown"):
+        transformer.main(["-i", str(input_file), "-o", str(output_file),
+                          "-c", str(config_file), "-r", "0", "--quiet"])
+
+    assert output_file.read_bytes() == original
 
 
 def test_get_sensor_ids_maps_channels_in_input_order():

@@ -5,8 +5,9 @@ Build calibrated waveform slices containing signal (PMaps) from raw HDF5 wavefor
 Each event is baseline-subtracted, polarity-inverted and gain-corrected before
 independent S1/S2 searches in the summed waveform. Output tables retain padded
 peak samples and sensor identifiers; sampling time is stored in microseconds as
-root metadata. The input's ``/Acquisition`` group, when present, is copied to
-the output. See ``docs/configuration.md`` and ``docs/formats.md``.
+root metadata. The detector and sampling interval come from acquisition JSON;
+the full ``/Acquisition`` group is copied to the output.
+See ``docs/configuration.md`` and ``docs/formats.md``.
 """
 from __future__ import annotations
 
@@ -68,7 +69,6 @@ class PeakConfig:
 class PMapConfig:
     s1           : PeakConfig
     s2           : PeakConfig
-    detector     : Detector
 
     @classmethod
     def load(cls, filename: Path) -> PMapConfig:
@@ -328,11 +328,11 @@ def main(argv=None):
     if args.input_file.resolve() == args.output_file.resolve():
         parser.error("input and output files must be different")
 
-    config  = PMapConfig.load(args.config_file)
-    mapping = load_channel_mapping(config.detector, args.run_number)
-
+    config = PMapConfig.load(args.config_file)
     acquisition_config = read_acquisition_config(args.input_file)
+    detector           = Detector.get(acquisition_config["detector"])
     sampling_time      = get_sampling_time(acquisition_config)
+    mapping            = load_channel_mapping(detector, args.run_number)
 
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
         copy_acquisition(args.input_file, outfile)
@@ -342,7 +342,7 @@ def main(argv=None):
             if not args.quiet:
                 print(f"\rProcessing event {i:>05}", end="", flush=True)
 
-            gains    = calibration_gains(config.detector, args.run_number, data["wfms"].sensors)
+            gains    = calibration_gains(detector, args.run_number, data["wfms"].sensors)
             s1s, s2s = create_pmap(data["event"], data["wfms"], gains, config, sampling_time)
 
             events = pd.DataFrame(dict(event=[data["event"]]))

@@ -13,6 +13,13 @@ The PMAP transformer expects:
 | `/Waveforms/channel_id` | `(channels,)` | Electronics channel identifiers in the second-axis order. |
 | `/Waveforms/event_id` | `(events,)` | Event identifiers in the first-axis order. |
 
+The `/Waveforms` group must have a numeric scalar attribute `sample_period_ns`,
+the finite positive interval between samples in nanoseconds. For example, `16`
+means 16 ns and becomes `0.016` microseconds internally. This attribute is the
+source of sampling time, not the configuration file or `/Acquisition` metadata.
+Files without it must have their acquisition metadata supplied before PMAP
+reconstruction; no default sampling interval is assumed.
+
 The channel mapping for the supplied detector/run translates channel IDs into
 sensor IDs. Unknown input channels are dropped with a warning; missing channels
 required by the mapping raise an error. PMAP columns use sensor IDs, not raw
@@ -34,7 +41,8 @@ microseconds. No timestamp array is required in the raw file.
 
 ## PMAP output
 
-The root attribute `sampling_time_microseconds` is the interval between samples.
+The root attribute `sampling_time_microseconds` is the interval between samples,
+converted from the raw waveform group's `sample_period_ns` attribute.
 It is required by the DST reader, including for one-sample peaks. Older files
 without it are not supported by that reader.
 

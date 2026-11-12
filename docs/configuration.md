@@ -6,7 +6,7 @@ Only use trusted files: configuration evaluation is not sandboxed. For example:
 
 ```python
 detector = pColina
-sampling_time = 16 * nanosecond
+s1_min_time = 1 * microsecond
 ```
 
 Use the unquoted symbol `pColina`, not the string `"pColina"`. `Colina` is also
@@ -107,9 +107,14 @@ dataclass construction continues to accept already converted internal values.
 See [pmaps_mc.conf](../config/pmaps_mc.conf) and
 [pmaps_run_8.conf](../config/pmaps_run_8.conf) for complete examples.
 
-`detector` chooses the database. `sampling_time` is the positive interval between
-raw waveform samples; sample zero is assigned time zero. Every following key is
-required twice, with `s1_` and `s2_` prefixes:
+`detector` chooses the database. The sampling interval comes from the numeric
+`sample_period_ns` attribute on the input's `/Waveforms` group, in nanoseconds;
+PMAPs convert it to internal microseconds and assign sample zero time zero.
+There is no config fallback or override, and `sampling_time` is no longer a
+config field. Missing metadata is rejected before opening the output file;
+the acquisition is responsible for providing a valid sample period. Every
+following key is required twice, with `s1_` and
+`s2_` prefixes:
 
 | Suffix | Meaning |
 | --- | --- |

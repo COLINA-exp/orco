@@ -31,7 +31,9 @@ from ..internal.types   import IndexRange
 from ..internal.types   import Waveforms
 from ..internal.units   import Amplitude
 from ..internal.units   import Time
+from ..internal.units   import reduce_to_internal
 from ..internal.units   import unit_scope
+from ..internal.units   import units
 from ..io.hdf5          import df_writer
 from ..reco.waveforms   import calibrate
 from ..reco.waveforms   import find_windows
@@ -63,12 +65,7 @@ class PeakConfig:
 class PMapConfig:
     s1           : PeakConfig
     s2           : PeakConfig
-    sampling_time: Time
     detector     : Detector
-
-    def __post_init__(self):
-        if self.sampling_time <= 0:
-            raise ValueError("sampling time must be positive")
 
     @classmethod
     def load(cls, filename: Path) -> PMapConfig:
@@ -80,6 +77,23 @@ class PMapConfig:
         return config_from_scope(cls, scope,
                                  s1=config_from_scope(PeakConfig, scope, prefix="s1_"),
                                  s2=config_from_scope(PeakConfig, scope, prefix="s2_"))
+
+
+def read_sampling_time(input_file: Path) -> float:
+    """
+    Read ``/Waveforms`` attribute ``sample_period_ns`` as microseconds.
+
+    The waveform metadata is authoritative; there is no configuration fallback.
+    Missing metadata raises ValueError before the output file is opened. The
+    acquisition is responsible for supplying a valid sample period; conversion
+    to the internal time unit is delegated to the shared unit helper.
+    """
+    with tb.open_file(input_file, "r") as infile:
+        try:
+            period = np.asarray(infile.root.Waveforms._v_attrs.sample_period_ns)
+        except (tb.NoSuchNodeError, AttributeError) as error:
+            raise ValueError(f"{input_file}: missing /Waveforms sample_period_ns metadata") from error
+        return reduce_to_internal(float(period) * units.nanosecond)
 
 
 def get_sensor_ids(channels       : np.ndarray,
@@ -138,7 +152,8 @@ def read_wfms(input_file     : Path,
             ``(event, channel, sample)`` order, plus one-dimensional
             ``channel_id`` and ``event_id`` arrays in that group.
         channel_mapping: Run-valid dataframe with ``ChannelID`` and ``SensorID``.
-        sampling_time: Sample interval in microseconds; sample zero has time zero.
+        sampling_time: Input metadata's sample interval, in microseconds;
+            sample zero has time zero. Obtain it with ``read_sampling_time``.
 
     Yields:
         Mappings with ``event`` and ``wfms`` (a ``Waveforms`` instance). Input
@@ -249,7 +264,8 @@ def find_peaks(wfms         : Waveforms,
 def create_pmap(event: int,
                 wfms : Waveforms,
                 gains: np.ndarray,
-                config: PMapConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+                config: PMapConfig,
+                sampling_time: float) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Reconstruct one event into S1 and S2 sample tables.
 
@@ -258,13 +274,14 @@ def create_pmap(event: int,
     searches are independent. Both returned tables include the event identifier,
     per-type peak numbers, sample times and calibrated sensor rates in pe/us
     when gains are defined in ADC * us / pe.
+    ``sampling_time`` is the input file's sample interval in microseconds.
     """
     wfms = remove_baseline(wfms)
     wfms = invert_polarity(wfms)
     wfms = calibrate(wfms, gains)
 
-    s1s = find_peaks(wfms, config.s1, config.sampling_time)
-    s2s = find_peaks(wfms, config.s2, config.sampling_time)
+    s1s = find_peaks(wfms, config.s1, sampling_time)
+    s2s = find_peaks(wfms, config.s2, sampling_time)
 
     s1s.insert(0, "event", event)
     s2s.insert(0, "event", event)
@@ -309,15 +326,16 @@ def main(argv=None):
 
     config = PMapConfig.load(args.config_file)
     mapping = load_channel_mapping(config.detector, args.run_number)
+    sampling_time = read_sampling_time(args.input_file)
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
-        outfile.root._v_attrs.sampling_time_microseconds = config.sampling_time
+        outfile.root._v_attrs.sampling_time_microseconds = sampling_time
 
-        for i, data in enumerate(read_wfms(args.input_file, mapping, config.sampling_time)):
+        for i, data in enumerate(read_wfms(args.input_file, mapping, sampling_time)):
             if not args.quiet:
                 print(f"\rProcessing event {i:>05}", end="", flush=True)
 
             gains    = calibration_gains(config.detector, args.run_number, data["wfms"].sensors)
-            s1s, s2s = create_pmap(data["event"], data["wfms"], gains, config)
+            s1s, s2s = create_pmap(data["event"], data["wfms"], gains, config, sampling_time)
 
             events = pd.DataFrame(dict(event=[data["event"]]))
             df_writer(outfile, events, "PMaps", "events")

@@ -21,6 +21,7 @@ from . pmaps          import find_peaks
 from . pmaps          import get_sensor_ids
 from . pmaps          import main
 from . pmaps          import read_wfms
+from . pmaps          import read_sampling_time
 from . pmaps          import select_windows
 from . dsts           import DstConfig
 
@@ -29,8 +30,8 @@ SAMPLING_TIME = 0.016
 
 
 @mark.parametrize("filename", ("pmaps_mc.conf", "pmaps_run_8.conf",
-                               "pmaps_pcolina_data.conf", "dsts_mc.conf",
-                               "dsts_pcolina_data.conf"))
+                               "pmaps_pcolina_data_v0.conf", "dsts_mc.conf",
+                               "dsts_pcolina_data_v0.conf"))
 def test_example_configs_have_explicit_correct_units(filename):
     loader = DstConfig if filename.startswith("dsts") else PMapConfig
     loader.load(Path(__file__).resolve().parents[2] / "config" / filename)
@@ -64,7 +65,6 @@ def test_peak_config_rejects_invalid_ranges(overrides):
 
 @mark.parametrize(("field", "expression"),
                   ((None, None),
-                   ("sampling_time", "16"),
                    ("s1_min_time", "0"),
                    ("s1_threshold", "2 * pe"),
                    ("s2_max_time", "1 * adc"),
@@ -74,7 +74,6 @@ def test_pmap_config_loads_transformer_settings(tmp_path, field, expression):
     filename = tmp_path / "pmaps.conf"
     filename.write_text(dedent("""
         detector = pColina
-        sampling_time = 16 * nanosecond
 
         s1_min_samples = 1
         s1_max_samples = 10
@@ -113,7 +112,7 @@ def test_pmap_config_loads_transformer_settings(tmp_path, field, expression):
     assert config.s2.min_time == 1.0
     assert config.s2.max_time == 2.0
     assert config.s2.threshold == 6
-    assert config.sampling_time == SAMPLING_TIME
+    assert not hasattr(config, "sampling_time")
     assert config.detector is Detector.pColina
 
 
@@ -155,10 +154,9 @@ def test_create_pmap_handles_empty_and_nonempty_peak_sets():
                          amplitudes=amplitudes)
     config = PMapConfig(peak_config(),
                         peak_config(threshold=10),
-                        SAMPLING_TIME,
                         Detector.pColina)
 
-    s1, s2 = create_pmap(42, waveforms, np.ones(2), config)
+    s1, s2 = create_pmap(42, waveforms, np.ones(2), config, SAMPLING_TIME)
 
     assert list(s1.columns) == ["event", "peak", "time", "summed",
                                 "sensor_010", "sensor_011"]
@@ -180,10 +178,9 @@ def test_create_pmap_peak_height_matches_summed_waveform():
                           amplitudes=amplitudes)
     config = PMapConfig(peak_config(),
                         peak_config(threshold=11),
-                        SAMPLING_TIME,
                         Detector.pColina)
 
-    s1, s2 = create_pmap(7, waveforms, np.ones(len(sensors)), config)
+    s1, s2 = create_pmap(7, waveforms, np.ones(len(sensors)), config, SAMPLING_TIME)
 
     # Only the S1 pulse is found, as a single peak.
     assert s2.empty
@@ -249,7 +246,8 @@ def test_calibration_gains_follow_waveform_sensor_order():
     assert_array_equal(gains, [1., 1.])
 
 
-def test_main_stores_event_numbers_in_pmaps_events(tmp_path):
+@mark.parametrize("period_ns", (16, 32, None))
+def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns):
     input_file = tmp_path / "waveforms.h5"
     amplitudes = np.zeros((2, 4, 20))
     amplitudes[:, :, 5:8] = -5   # pulse recorded as a negative dip
@@ -257,6 +255,8 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path):
     events   = np.array([100, 101])
     with tb.open_file(input_file, "w") as h5out:
         group = h5out.create_group("/", "Waveforms")
+        if period_ns is not None:
+            group._v_attrs.sample_period_ns = period_ns
         h5out.create_array(group, "adcs", amplitudes)
         h5out.create_array(group, "channel_id", channels)
         h5out.create_array(group, "event_id", events)
@@ -264,7 +264,6 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path):
     config_file = tmp_path / "pmaps.conf"
     config_file.write_text(dedent("""
         detector = pColina
-        sampling_time = 16 * nanosecond
 
         s1_min_samples = 1
         s1_max_samples = 20
@@ -284,16 +283,46 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path):
     """))
 
     output_file = tmp_path / "pmaps.h5"
-    main(["-i", str(input_file),
-          "-o", str(output_file),
-          "-c", str(config_file),
-          "-r", "0"])
+    arguments = ["-i", str(input_file), "-o", str(output_file),
+                 "-c", str(config_file), "-r", "0"]
+    if period_ns is None:
+        original = b"existing output must survive missing input metadata"
+        output_file.write_bytes(original)
+        with raises(ValueError, match="sample_period_ns"):
+            main(arguments)
+        assert output_file.read_bytes() == original
+        return
+
+    # A stale config setting must not override the acquisition metadata.
+    config_file.write_text(config_file.read_text() + "\nsampling_time = 999 * microsecond\n")
+    main(arguments)
 
     with tb.open_file(output_file) as h5out:
-        assert h5out.root._v_attrs.sampling_time_microseconds == SAMPLING_TIME
+        assert h5out.root._v_attrs.sampling_time_microseconds == period_ns / 1000
         assert_array_equal(h5out.root.PMaps.events.col("event"), events)
         assert set(h5out.root.PMaps.S1.col("event")) == set(events.tolist())
         assert h5out.root.PMaps.S2.nrows == 0
+        assert_array_equal(np.unique(h5out.root.PMaps.S1.col("time")),
+                           np.arange(5, 8) * (period_ns / 1000))
+
+
+@mark.parametrize("period_ns", (16, 32.5))
+def test_read_sampling_time_converts_nanoseconds_to_microseconds(tmp_path, period_ns):
+    filename = tmp_path / "waveforms.h5"
+    with tb.open_file(filename, "w") as output:
+        group = output.create_group("/", "Waveforms")
+        group._v_attrs.sample_period_ns = period_ns
+
+    assert read_sampling_time(filename) == period_ns / 1000
+
+
+def test_read_sampling_time_reports_missing_waveforms_group(tmp_path):
+    filename = tmp_path / "waveforms.h5"
+    with tb.open_file(filename, "w"):
+        pass
+
+    with raises(ValueError, match="sample_period_ns"):
+        read_sampling_time(filename)
 
 
 def test_get_sensor_ids_maps_channels_in_input_order():

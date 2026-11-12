@@ -14,7 +14,21 @@ from ..internal.exceptions import TableMismatch
 from . hdf5                import _decode_str_columns
 from . hdf5                import copy_acquisition
 from . hdf5                import df_writer
+from . hdf5                import get_sampling_time
 from . hdf5                import read_acquisition_config
+
+
+@mark.parametrize("period_ns", (16, 32.5))
+def test_get_sampling_time_converts_json_nanoseconds_to_microseconds(period_ns):
+    config = dict(effective=dict(sample_period_ns=period_ns))
+
+    assert get_sampling_time(config) == period_ns / 1000
+
+
+@mark.parametrize("config", ({}, dict(effective={})))
+def test_get_sampling_time_reports_missing_json_metadata(config):
+    with raises(KeyError):
+        get_sampling_time(config)
 
 
 def test_copy_acquisition_preserves_hierarchy_data_and_attributes(tmp_path):

@@ -21,8 +21,11 @@ import pandas as pd
 import tables as tb
 
 from typing import Any
+from typing import Mapping
 
 from .. internal.exceptions import TableMismatch
+from .. internal.units      import reduce_to_internal
+from .. internal.units      import units
 
 
 def copy_acquisition(input_file: str | Path, output_file: tb.File) -> None:
@@ -69,6 +72,25 @@ def read_acquisition_config(input_file: str | Path) -> dict[str, Any]:
     with tb.open_file(input_file, "r") as infile:
         payload = np.asarray(infile.get_node("/Acquisition/config_json").read()).item()
     return loads(payload)
+
+
+def get_sampling_time(config: Mapping[str, Any]) -> float:
+    """
+    Extract the DAQ sampling time from the acquisition JSON config.
+
+    Return the period in internal units.
+
+    Args:
+        config: Acquisition configuration returned by ``read_acquisition_config``.
+
+    Returns:
+        sampling_time
+
+    Raises:
+        KeyError if the required fields are not present.
+    """
+    period = config["effective"]["sample_period_ns"]
+    return reduce_to_internal(period * units.nanosecond)
 
 
 def _decode_str_columns(df: pd.DataFrame) -> pd.DataFrame:

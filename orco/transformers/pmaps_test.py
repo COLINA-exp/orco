@@ -24,7 +24,6 @@ from . pmaps          import find_peaks
 from . pmaps          import get_sensor_ids
 from . pmaps          import main
 from . pmaps          import read_wfms
-from . pmaps          import get_sampling_time
 from . pmaps          import select_windows
 from . dsts           import DstConfig
 
@@ -317,19 +316,6 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_acqu
         assert h5out.root.PMaps.S2.nrows == 0
         assert_array_equal(np.unique(h5out.root.PMaps.S1.col("time")),
                            np.arange(5, 8) * (period_ns / 1000))
-
-
-@mark.parametrize("period_ns", (16, 32.5))
-def test_get_sampling_time_converts_json_nanoseconds_to_microseconds(period_ns):
-    config = dict(effective=dict(sample_period_ns=period_ns))
-
-    assert get_sampling_time(config) == period_ns / 1000
-
-
-@mark.parametrize("config", ({}, dict(effective={})))
-def test_get_sampling_time_reports_missing_json_metadata(config):
-    with raises(KeyError):
-        get_sampling_time(config)
 
 
 @mark.parametrize("transformer", (pmaps, dsts))

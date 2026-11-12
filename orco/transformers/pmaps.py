@@ -33,11 +33,10 @@ from ..internal.types   import IndexRange
 from ..internal.types   import Waveforms
 from ..internal.units   import Amplitude
 from ..internal.units   import Time
-from ..internal.units   import reduce_to_internal
 from ..internal.units   import unit_scope
-from ..internal.units   import units
 from ..io.hdf5          import copy_acquisition
 from ..io.hdf5          import df_writer
+from ..io.hdf5          import get_sampling_time
 from ..io.hdf5          import read_acquisition_config
 from ..reco.waveforms   import calibrate
 from ..reco.waveforms   import find_windows
@@ -80,25 +79,6 @@ class PMapConfig:
         return config_from_scope(cls, scope,
                                  s1=config_from_scope(PeakConfig, scope, prefix="s1_"),
                                  s2=config_from_scope(PeakConfig, scope, prefix="s2_"))
-
-
-def get_sampling_time(config: Mapping[str, Any]) -> float:
-    """
-    Extract the DAQ sampling time from the acquisition JSON config.
-
-    Return the period in internal units.
-
-    Args:
-        config: Acquisition configuration returned by ``read_acquisition_config``.
-
-    Returns:
-        sampling_time
-
-    Raises:
-        KeyError if the required fields are not present.
-    """
-    period = config["effective"]["sample_period_ns"]
-    return reduce_to_internal(period * units.nanosecond)
 
 
 def get_sensor_ids(channels       : np.ndarray,

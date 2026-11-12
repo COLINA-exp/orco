@@ -247,13 +247,18 @@ def test_calibration_gains_follow_waveform_sensor_order():
 
 
 @mark.parametrize("period_ns", (16, 32, None))
-def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns):
+@mark.parametrize("has_acquisition", (False, True))
+def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_acquisition):
     input_file = tmp_path / "waveforms.h5"
     amplitudes = np.zeros((2, 4, 20))
     amplitudes[:, :, 5:8] = -5   # pulse recorded as a negative dip
     channels = np.array([1, 2, 3, 4])
     events   = np.array([100, 101])
     with tb.open_file(input_file, "w") as h5out:
+        if has_acquisition:
+            acquisition = h5out.create_group("/", "Acquisition")
+            acquisition._v_attrs.run_number = 0
+            h5out.create_array(acquisition, "config_json", b'{"run_number": 0}')
         group = h5out.create_group("/", "Waveforms")
         if period_ns is not None:
             group._v_attrs.sample_period_ns = period_ns
@@ -298,6 +303,10 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns):
     main(arguments)
 
     with tb.open_file(output_file) as h5out:
+        assert ("Acquisition" in h5out.root) == has_acquisition
+        if has_acquisition:
+            assert h5out.root.Acquisition._v_attrs.run_number == 0
+            assert h5out.root.Acquisition.config_json.read() == b'{"run_number": 0}'
         assert h5out.root._v_attrs.sampling_time_microseconds == period_ns / 1000
         assert_array_equal(h5out.root.PMaps.events.col("event"), events)
         assert set(h5out.root.PMaps.S1.col("event")) == set(events.tolist())

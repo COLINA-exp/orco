@@ -230,7 +230,8 @@ def test_empty_peak_keeps_sensor_schema():
 
 
 @mark.parametrize("sampling_time", (0.016, 0.032, 0.1))
-def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch, sampling_time):
+@mark.parametrize("has_acquisition", (False, True))
+def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch, sampling_time, has_acquisition):
     input_file = tmp_path / "pmaps.h5"
     peaks = pd.DataFrame({"event": [42, 42],
                           "peak": [0, 0],
@@ -239,6 +240,10 @@ def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch, sa
                           "sensor_001": [1.0, 2.0],
                           "sensor_002": [1.0, 2.0]})
     with tb.open_file(input_file, "w") as h5out:
+        if has_acquisition:
+            acquisition = h5out.create_group("/", "Acquisition")
+            acquisition._v_attrs.run_number = 0
+            h5out.create_array(acquisition, "config_json", b'{"run_number": 0}')
         h5out.root._v_attrs.sampling_time_microseconds = sampling_time
         df_writer(h5out, pd.DataFrame({"event": [42]}), "PMaps", "events")
         df_writer(h5out, peaks, "PMaps", "S1")
@@ -285,6 +290,10 @@ def test_main_uses_pmap_sampling_time_when_writing_dst(tmp_path, monkeypatch, sa
                "-r", "0"])
 
     with tb.open_file(output_file) as h5out:
+        assert ("Acquisition" in h5out.root) == has_acquisition
+        if has_acquisition:
+            assert h5out.root.Acquisition._v_attrs.run_number == 0
+            assert h5out.root.Acquisition.config_json.read() == b'{"run_number": 0}'
         counts = pd.DataFrame(h5out.root.DST.EventPeakCount.read(),
                               columns=h5out.root.DST.EventPeakCount.colnames)
         pointlike = pd.DataFrame(h5out.root.DST.Pointlike.read(),

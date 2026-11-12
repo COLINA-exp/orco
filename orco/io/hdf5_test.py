@@ -12,8 +12,79 @@ from pytest import warns
 
 from ..internal.exceptions import TableMismatch
 from . hdf5                import _decode_str_columns
+from . hdf5                import copy_acquisition
 from . hdf5                import df_writer
 from . hdf5                import read_acquisition_config
+
+
+def test_copy_acquisition_preserves_hierarchy_data_and_attributes(tmp_path):
+    input_file = tmp_path / "input.h5"
+    output_file = tmp_path / "output.h5"
+    payload = b'{"run_number": 3, "effective": {"sample_period_ns": 16}}'
+    records = np.array([(0, 1.5), (1, 2.5)], dtype=[("channel", "i4"), ("gain", "f8")])
+    with tb.open_file(input_file, "w") as source:
+        acquisition = source.create_group("/", "Acquisition", "Acquisition metadata")
+        acquisition._v_attrs.run_number = 3
+        config = source.create_array(acquisition, "config_json", payload, "Full configuration")
+        config._v_attrs.encoding = "utf-8"
+        configuration = source.create_group(acquisition, "Configuration", "Configuration subsection")
+        configuration._v_attrs.version = 1
+        channels = source.create_carray(configuration, "channels", obj=np.arange(4),
+                                        filters=tb.Filters(complevel=3, complib="zlib"))
+        channels._v_attrs.description = "Enabled channels"
+        table = source.create_table(configuration, "calibration", obj=records)
+        table._v_attrs.units = "ADC * us / pe"
+        source.create_group(acquisition, "Empty")
+        source.create_array("/", "unrelated", [1, 2])
+    original = input_file.read_bytes()
+
+    with tb.open_file(output_file, "w") as destination:
+        destination.create_group("/", "PMaps")
+        copy_acquisition(input_file, destination)
+        assert "PMaps" in destination.root
+        assert "unrelated" not in destination.root
+
+    assert input_file.read_bytes() == original
+    with tb.open_file(input_file) as source, tb.open_file(output_file) as destination:
+        for node in source.walk_nodes("/Acquisition"):
+            copied = destination.get_node(node._v_pathname)
+            assert type(copied) is type(node)
+            assert copied._v_title == node._v_title
+            assert copied._v_attrs._f_list("user") == node._v_attrs._f_list("user")
+            for name in node._v_attrs._f_list("user"):
+                assert_array_equal(copied._v_attrs[name], node._v_attrs[name])
+            if isinstance(node, tb.Leaf):
+                assert copied.dtype == node.dtype
+                assert copied.shape == node.shape
+                assert copied.filters == node.filters
+                assert_array_equal(copied.read(), node.read())
+
+
+def test_copy_acquisition_skips_missing_group(tmp_path):
+    input_file = tmp_path / "input.h5"
+    output_file = tmp_path / "output.h5"
+    with tb.open_file(input_file, "w"):
+        pass
+
+    with tb.open_file(output_file, "w") as destination:
+        destination.create_array("/", "existing", [1, 2])
+        copy_acquisition(input_file, destination)
+        assert "Acquisition" not in destination.root
+        assert_array_equal(destination.root.existing.read(), [1, 2])
+
+
+def test_copy_acquisition_does_not_overwrite_existing_metadata(tmp_path):
+    input_file = tmp_path / "input.h5"
+    output_file = tmp_path / "output.h5"
+    with tb.open_file(input_file, "w") as source:
+        source.create_group("/", "Acquisition")
+
+    with tb.open_file(output_file, "w") as destination:
+        acquisition = destination.create_group("/", "Acquisition")
+        destination.create_array(acquisition, "config_json", b'{"original": true}')
+        with raises(tb.NodeError):
+            copy_acquisition(input_file, destination)
+        assert acquisition.config_json.read() == b'{"original": true}'
 
 
 @mark.parametrize("config", ({}, dict(run_number=3,

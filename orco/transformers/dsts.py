@@ -4,7 +4,8 @@ Generate point-like data-summary tables (DSTs) from PMAP files.
 
 Peak cuts are applied before event-count cuts. Passing events contribute every
 S1/S2 combination, with S1 multiplicity from FP sensors and S2 multiplicity and
-barycenters from NP sensors. See ``docs/formats.md`` for schemas and units.
+barycenters from NP sensors. The input's ``/Acquisition`` group, when present,
+is copied to the output. See ``docs/formats.md`` for schemas and units.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from ..internal.types   import Interval
 from ..internal.units   import Charge
 from ..internal.units   import units
 from ..internal.units   import unit_scope
+from ..io.hdf5          import copy_acquisition
 from ..io.hdf5          import df_writer
 from ..io.structures    import dst_types
 
@@ -383,6 +385,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     Reads PMAP events, applies the configured S1/S2 peak selections, and
     writes blame, event-count and point-like tables to an HDF5 output file.
+    Copies the input's ``/Acquisition`` group when present.
 
     Args:
         argv: Optional command-line arguments, excluding the program name.
@@ -411,6 +414,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     ids_fp     = sensors_fp.SensorID.to_numpy()
 
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
+        copy_acquisition(args.input_file, outfile)
         for i, data in enumerate(read_pmaps(args.input_file)):
             if not args.quiet:
                 print(f"\rProcessing event {i:>05}", end="", flush=True)

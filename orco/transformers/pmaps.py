@@ -5,7 +5,8 @@ Build calibrated waveform slices containing signal (PMaps) from raw HDF5 wavefor
 Each event is baseline-subtracted, polarity-inverted and gain-corrected before
 independent S1/S2 searches in the summed waveform. Output tables retain padded
 peak samples and sensor identifiers; sampling time is stored in microseconds as
-root metadata. See ``docs/configuration.md`` and ``docs/formats.md``.
+root metadata. The input's ``/Acquisition`` group, when present, is copied to
+the output. See ``docs/configuration.md`` and ``docs/formats.md``.
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ from ..internal.units   import Time
 from ..internal.units   import reduce_to_internal
 from ..internal.units   import unit_scope
 from ..internal.units   import units
+from ..io.hdf5          import copy_acquisition
 from ..io.hdf5          import df_writer
 from ..reco.waveforms   import calibrate
 from ..reco.waveforms   import find_windows
@@ -328,6 +330,7 @@ def main(argv=None):
     mapping = load_channel_mapping(config.detector, args.run_number)
     sampling_time = read_sampling_time(args.input_file)
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
+        copy_acquisition(args.input_file, outfile)
         outfile.root._v_attrs.sampling_time_microseconds = sampling_time
 
         for i, data in enumerate(read_wfms(args.input_file, mapping, sampling_time)):

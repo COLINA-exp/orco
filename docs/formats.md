@@ -41,6 +41,13 @@ microseconds. No timestamp array is required in the raw file.
 
 ## Acquisition configuration metadata
 
+Both transformers copy the full `/Acquisition` group from input to output when
+present, preserving its attributes and all nested groups, arrays and tables.
+This carries acquisition metadata through raw waveform, PMAP and DST files
+without interpreting or applying it. Inputs without `/Acquisition` remain
+supported; no placeholder group is created. The copy is independent of event
+limits and peak selections.
+
 Raw files can also contain `/Acquisition/config_json`, a scalar string array
 holding the full run configuration as JSON. A standalone reader is available:
 
@@ -133,8 +140,9 @@ the first event. Empty input can fail in the final progress message unless
 
 The DST reader materializes both complete PMAP tables in memory and filters them
 for each event. Large files may need substantial memory and processing time.
-PMAPs carry sampling time but no detector/run/configuration provenance; supply
-consistent settings at both stages yourself.
+PMAPs carry sampling time and any original `/Acquisition` metadata, but the
+transformers do not record the reconstruction detector, run or configuration
+settings. Supply consistent settings at both stages yourself.
 
 The generic dataframe writer fixes a table's schema on its first write. Numeric
 compatibility uses NumPy's `same_kind` rule, which permits narrowing and does not

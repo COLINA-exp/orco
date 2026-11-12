@@ -25,6 +25,27 @@ from typing import Any
 from .. internal.exceptions import TableMismatch
 
 
+def copy_acquisition(input_file: str | Path, output_file: tb.File) -> None:
+    """
+    Copy the full ``/Acquisition`` group to an open output file.
+
+    Nested groups, arrays, tables and their attributes are copied without
+    interpreting their contents. The source is opened read-only and closed
+    before returning. If ``/Acquisition`` is absent, nothing is copied.
+
+    Args:
+        input_file: Input HDF5 filename.
+        output_file: Open, writable HDF5 file receiving the group at its root.
+
+    Raises:
+        tables.NodeError: If the output already contains ``/Acquisition``;
+            existing metadata is not overwritten.
+    """
+    with tb.open_file(input_file, "r") as infile:
+        if "/Acquisition" in infile:
+            infile.copy_node("/Acquisition", newparent=output_file.root, recursive=True)
+
+
 def read_acquisition_config(input_file: str | Path) -> dict[str, Any]:
     """
     Read the full run configuration from ``/Acquisition/config_json``.

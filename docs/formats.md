@@ -39,6 +39,26 @@ S1/S2 windows are found independently in the summed calibrated waveform, selecte
 by time and sample length, then padded. Time is `sample_index * sampling_time` in
 microseconds. No timestamp array is required in the raw file.
 
+## Acquisition configuration metadata
+
+Raw files can also contain `/Acquisition/config_json`, a scalar string array
+holding the full run configuration as JSON. A standalone reader is available:
+
+```python
+from orco.io.hdf5 import read_acquisition_config
+
+configuration = read_acquisition_config("waveforms.h5")
+```
+
+It returns a dictionary with nested JSON values, opens the file read-only, and
+closes it before returning. The standard JSON decoder handles text encoding;
+this is separate from the dataframe writer's ASCII-only string columns. Missing
+nodes and malformed JSON raise the underlying PyTables/JSON errors.
+
+The reader does not apply or validate settings and is not connected to any
+transformer. `/Acquisition/Configuration/config_json`, when present, is a
+different acquisition-only subsection and is not used as a fallback.
+
 ## PMAP output
 
 The root attribute `sampling_time_microseconds` is the interval between samples,

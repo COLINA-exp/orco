@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """
-Utilities for writing pandas dataframes to PyTables tables.
+Utilities for HDF5 IO operations.
 
 The first dataframe written to a group/table pair defines the persistent
 table schema. Later writes are appended after their columns and numeric types
 have been checked against that schema.
 
-String fields use fixed-width ASCII bytes, not UTF-8. Numeric checks use NumPy's
-``same_kind`` casting rule, not value-range validation; narrowing may lose data.
+Dataframe string fields use fixed-width ASCII bytes, not UTF-8. Numeric checks
+use NumPy's ``same_kind`` casting rule, not value-range validation; narrowing may
+lose data. Acquisition JSON uses the standard JSON decoder independently of
+these dataframe-writing conventions.
 """
 
 import warnings
+from json import loads
+from pathlib import Path
 
 import numpy  as np
 import pandas as pd
@@ -19,6 +23,31 @@ import tables as tb
 from typing import Any
 
 from .. internal.exceptions import TableMismatch
+
+
+def read_acquisition_config(input_file: str | Path) -> dict[str, Any]:
+    """
+    Read the full run configuration from ``/Acquisition/config_json``.
+
+    The input node is a scalar HDF5 string array containing a JSON object,
+    not a PyTables table. The separate ``/Acquisition/Configuration/config_json``
+    subsection is not read. The file is opened read-only and closed before
+    returning a plain dictionary, including nested JSON values. No configuration
+    settings are applied or validated, and no transformer uses this reader yet.
+
+    Args:
+        input_file: Input HDF5 filename.
+
+    Returns:
+        The JSON configuration decoded using Python's standard JSON decoder.
+
+    Raises:
+        tables.NoSuchNodeError: If the configuration node is missing.
+        json.JSONDecodeError: If the stored text is not valid JSON.
+    """
+    with tb.open_file(input_file, "r") as infile:
+        payload = np.asarray(infile.get_node("/Acquisition/config_json").read()).item()
+    return loads(payload)
 
 
 def _decode_str_columns(df: pd.DataFrame) -> pd.DataFrame:

@@ -52,9 +52,11 @@ orco dsts  -i pmaps.h5     -o dsts.h5  -c dsts.conf  -r -1
 ```
 
 `-r -1` selects the bundled simulation calibration and geometry. For measured
-data, supply the actual run number and appropriate configurations. Use the same
-detector and run for both stages: PMAPs store sampling time but not run or
-detector provenance, so the DST transformer cannot check this for you.
+data, supply the actual run number and appropriate configurations. Both stages
+read the detector from `/Acquisition/config_json` (case-insensitive), which is
+copied to each output. Both stages also read `effective.sample_period_ns` from
+that JSON. Neither value comes from the reconstruction config. Use the same `-r`
+for both stages; it is not checked against the acquisition's run number.
 
 Both transformers require `-i`, `-o`, `-c` and `-r`. `-n N` limits processing to
 the first `N` input events; the default `-n -1` processes all events. `--quiet`

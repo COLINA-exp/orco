@@ -21,8 +21,11 @@ the `/Waveforms` attribute `sample_period_ns` and configuration file are not
 used. Files without the JSON field must have their acquisition metadata supplied
 before PMAP reconstruction; no default sampling interval is assumed.
 
-The channel mapping for the supplied detector/run translates channel IDs into
-sensor IDs. Unknown input channels are dropped with a warning; missing channels
+The top-level JSON `detector` string selects the database, ignoring case (for
+example, `"pCOLINA"` selects `pColina`). The run number still comes from `-r`;
+neither transformer uses a config-file detector or the JSON's run number.
+The channel mapping for that detector/run translates channel IDs into sensor
+IDs. Unknown input channels are dropped with a warning; missing channels
 required by the mapping raise an error. PMAP columns use sensor IDs, not raw
 channel IDs. Treat channel and event identifiers as unique within their axes.
 
@@ -42,13 +45,13 @@ microseconds. No timestamp array is required in the raw file.
 
 ## Acquisition configuration metadata
 
-Both transformers copy the full `/Acquisition` group from input to output when
-present, preserving its attributes and all nested groups, arrays and tables.
+Both transformers copy the full `/Acquisition` group from input to output,
+preserving its attributes and all nested groups, arrays and tables.
 This carries acquisition metadata through raw waveform, PMAP and DST files
 without modifying it. The copy is independent of event limits and peak
-selections. PMAP reconstruction requires the JSON sampling period described
-above. DST inputs without `/Acquisition` remain supported; no placeholder
-group is created.
+selections. Both transformers require `/Acquisition/config_json` with a known
+`detector` and the JSON sampling period described above. Missing metadata is
+not replaced by defaults.
 
 `/Acquisition/config_json` is a scalar string array holding the full run
 configuration as JSON. A standalone reader is available:
@@ -64,8 +67,9 @@ closes it before returning. The standard JSON decoder handles text encoding;
 this is separate from the dataframe writer's ASCII-only string columns. Missing
 nodes and malformed JSON raise the underlying PyTables/JSON errors.
 
-The reader does not apply or validate settings. The PMAP transformer uses
-`effective.sample_period_ns` from this dictionary for its sampling interval.
+The reader does not apply or validate settings. Both transformers extract
+`detector` and `effective.sample_period_ns` from this dictionary. The shared
+`orco.io.hdf5.get_sampling_time` helper converts the period to microseconds.
 `/Acquisition/Configuration/config_json`, when present, is a different
 acquisition-only subsection and is not used as a fallback.
 
@@ -73,8 +77,9 @@ acquisition-only subsection and is not used as a fallback.
 
 The root attribute `sampling_time_microseconds` is the interval between samples,
 converted from `effective.sample_period_ns` in the raw file's acquisition JSON.
-It is required by the DST reader, including for one-sample peaks. Older files
-without it are not supported by that reader.
+This attribute is informational: the DST transformer reads its sampling interval
+from the copied acquisition JSON, including for one-sample peaks. It does not
+require or fall back to this attribute.
 
 | Table | Columns |
 | --- | --- |
@@ -143,9 +148,10 @@ the first event. Empty input can fail in the final progress message unless
 
 The DST reader materializes both complete PMAP tables in memory and filters them
 for each event. Large files may need substantial memory and processing time.
-PMAPs carry sampling time and any original `/Acquisition` metadata, but the
-transformers do not record the reconstruction detector, run or configuration
-settings. Supply consistent settings at both stages yourself.
+PMAPs carry sampling time and the original `/Acquisition` metadata, including
+the detector used by both transformers. The transformers do not record the
+reconstruction run number or configuration settings. Supply a consistent `-r`
+at both stages yourself; it is not checked against the acquisition run number.
 
 The generic dataframe writer fixes a table's schema on its first write. Numeric
 compatibility uses NumPy's `same_kind` rule, which permits narrowing and does not

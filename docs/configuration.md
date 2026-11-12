@@ -5,13 +5,15 @@ as Python code with detector symbols and Pint unit names available directly.
 Only use trusted files: configuration evaluation is not sandboxed. For example:
 
 ```python
-detector = pColina
 s1_min_time = 1 * microsecond
 ```
 
-Use the unquoted symbol `pColina`, not the string `"pColina"`. `Colina` is also
-defined as a detector symbol, but no database for it is currently bundled.
-There are no fallback values for required configuration keys.
+Both transformers read the top-level `detector` string from the input's
+`/Acquisition/config_json`, not from the reconstruction configuration. Names
+are case-insensitive: `"pCOLINA"` resolves to `Detector.pColina`. `Colina` is
+also recognized, but no database for it is currently bundled. Missing detector
+metadata or unknown names fail before opening the output file. There is no
+configuration fallback and no fallback for other required configuration keys.
 
 ## Installed examples
 
@@ -107,7 +109,8 @@ dataclass construction continues to accept already converted internal values.
 See [pmaps_mc.conf](../config/pmaps_mc.conf) and
 [pmaps_run_8.conf](../config/pmaps_run_8.conf) for complete examples.
 
-`detector` chooses the database. The sampling interval comes from the numeric
+The acquisition JSON's `detector` selects the database. The sampling interval
+comes from the numeric
 `effective.sample_period_ns` field in the input's `/Acquisition/config_json`,
 in nanoseconds. PMAPs convert it to internal microseconds and assign sample zero
 time zero. There is no waveform-attribute or config fallback or override, and
@@ -135,8 +138,10 @@ not the original unpadded window.
 
 ## DST settings
 
-See [dsts_mc.conf](../config/dsts_mc.conf) for a complete example. `detector` is
-required; sampling time comes from the PMAP file, not from DST configuration.
+See [dsts_mc.conf](../config/dsts_mc.conf) for a complete example. The detector
+and `effective.sample_period_ns` come from the acquisition JSON copied into
+the PMAP file, not from DST configuration or the PMAP root attribute. The shared
+unit helper converts the JSON period from nanoseconds to internal microseconds.
 Every following key is required with both `s1_` and `s2_` prefixes:
 
 | Suffix | Meaning and boundary convention |

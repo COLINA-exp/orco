@@ -92,7 +92,7 @@ waveform's instantaneous rate, not its integrated charge. For example:
 class ExampleConfig:
     min_time: Time
     threshold: Amplitude
-    padding: int
+    count: int
 ```
 
 The shared `config_from_scope` reader resolves these annotations with metadata
@@ -124,14 +124,32 @@ prefixes:
 
 | Suffix | Meaning |
 | --- | --- |
-| `min_samples`, `max_samples` | Inclusive limits on the unpadded window length; minimum is at least 1. |
+| `min_width`, `max_width` | Inclusive limits on unpadded width, defined as sample count times sampling interval. Minimum is at least one sample. |
 | `min_time`, `max_time` | Inclusive limits containing the first and last unpadded sample times. |
 | `threshold` | Minimum summed calibrated rate in pe/us for a sample to cross threshold. Equality counts. |
-| `holdon` | Maximum number of below-threshold samples between crossings that are merged. Must be nonnegative. |
-| `padding` | Nonnegative number of samples added at both ends after window selection, clipped to waveform bounds. |
+| `holdon` | Nonnegative duration of the below-threshold gap allowed between crossings that are merged. |
+| `padding` | Nonnegative duration added at each end after window selection, clipped to waveform bounds. |
 
-For example, `s1_holdon = 5` joins crossings separated by up to five
-below-threshold samples. A peak is represented by a half-open index range
+Widths, hold-on and padding require explicit time units, including for zero:
+`s1_padding = 0 * ns`. They must be integer multiples of the DAQ sampling
+interval. `PMapConfig.load(filename, sampling_time)` takes that interval in
+internal microseconds. It converts these settings once and stores integer
+`min_samples`, `max_samples`, `holdon` and `padding` in a single `PeakConfig`.
+The old `min_samples`/`max_samples` config-file keys are not supported.
+
+Conversion accepts ratios within an absolute tolerance of `1e-9` samples of
+an integer, with no relative tolerance. This accommodates floating-point
+rounding without silently rounding genuinely fractional samples. Nonfinite
+durations are rejected. Arrival-time cuts (`min_time`/`max_time`) need not be
+sampling-time multiples and are not rounded.
+
+For example, at 16 ns sampling, `s1_holdon = 80 * ns` joins crossings separated
+by up to five below-threshold samples, and `s1_padding = 32 * ns` adds two samples
+at each end. A width of three samples is 48 ns, even though their first and last
+timestamps differ by 32 ns. The bundled PMAP examples preserve their original
+sample counts at a 16 ns interval.
+
+A peak is represented by a half-open index range
 `[first, last + 1)`, so slicing includes the last crossing sample.
 
 S1 and S2 searches are independent and use the sum of **all retained sensors**.

@@ -27,6 +27,7 @@ from ..database.io      import get_database
 from ..database.io      import load_channel_mapping
 from ..database.io      import load_sensor_calibration
 from ..internal.config  import config_from_scope
+from ..internal.config  import time_to_samples
 from ..internal.symbols import all_symbols
 from ..internal.types   import IndexRange
 from ..internal.types   import Waveforms
@@ -46,6 +47,8 @@ from ..reco.waveforms   import slice_waveforms
 
 @dataclass
 class PeakConfig:
+    """Peak settings stored in samples and internal units after config loading."""
+
     min_samples: int
     max_samples: int
     min_time   : Time
@@ -53,6 +56,28 @@ class PeakConfig:
     threshold  : Amplitude
     holdon     : int
     padding    : int
+
+    @classmethod
+    def from_scope(cls, scope: Mapping[str, Any], sampling_time: float, *,
+                   prefix: str = "") -> PeakConfig:
+        """
+        Convert external widths, hold-on and padding times to sample counts.
+
+        Time quantities must align with ``sampling_time`` (in internal units),
+        allowing float rounding error. Arrival-time cuts are not quantized.
+        The input scope is not modified. Legacy sample-count keys are rejected.
+        """
+        converted = dict(scope)
+        for external, internal in (("min_width", "min_samples"),
+                                   ("max_width", "max_samples"),
+                                   (   "holdon",      "holdon"),
+                                   (  "padding",     "padding")):
+            key    = prefix + external
+            target = prefix + internal
+            if external != internal and target in scope:
+                raise ValueError(f"{target}: use {key} with explicit time units")
+            converted[target] = time_to_samples(converted.pop(key), sampling_time, name=key)
+        return config_from_scope(cls, converted, prefix=prefix)
 
     def __post_init__(self):
         if self.min_samples < 1 or self.max_samples < self.min_samples:
@@ -69,15 +94,16 @@ class PMapConfig:
     s2           : PeakConfig
 
     @classmethod
-    def load(cls, filename: Path) -> PMapConfig:
+    def load(cls, filename: Path, sampling_time: float) -> PMapConfig:
+        """Load time-valued settings using the DAQ interval in internal units."""
         scope = unit_scope()
         scope.update(all_symbols())
         with open(filename) as file:
             exec(file.read(), scope)
 
         return config_from_scope(cls, scope,
-                                 s1=config_from_scope(PeakConfig, scope, prefix="s1_"),
-                                 s2=config_from_scope(PeakConfig, scope, prefix="s2_"))
+                                 s1=PeakConfig.from_scope(scope, sampling_time, prefix="s1_"),
+                                 s2=PeakConfig.from_scope(scope, sampling_time, prefix="s2_"))
 
 
 def get_sensor_ids(channels       : np.ndarray,
@@ -309,9 +335,9 @@ def main(argv=None):
     if args.input_file.resolve() == args.output_file.resolve():
         parser.error("input and output files must be different")
 
-    config = PMapConfig.load(args.config_file)
     daq_config    = read_daq_config(args.input_file)
     sampling_time = get_sampling_time(daq_config)
+    config        = PMapConfig.load(args.config_file, sampling_time)
     database_file = get_database(daq_config.get("detector"), args.database)
     mapping       = load_channel_mapping(database_file, args.run_number)
 

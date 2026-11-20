@@ -11,6 +11,7 @@ from pytest import raises
 
 from .config import config_from_scope
 from .config import config_value
+from .config import time_to_samples
 from .exceptions import InvalidRange
 from .symbols import Detector
 from .types import ClosedInterval
@@ -19,6 +20,29 @@ from .units import Amplitude
 from .units import Charge
 from .units import Time
 from .units import units
+
+
+@mark.parametrize(("value", "expected"),
+                  ((0 * units.ns, 0), (48 * units.ns, 3),
+                   (0.04800000000000001 * units.microsecond, 3),
+                   (0.04799999999999999 * units.microsecond, 3),
+                   ((3 + 0.5e-9) * 0.016 * units.microsecond, 3),
+                   ((3 - 0.5e-9) * 0.016 * units.microsecond, 3),
+                   (992 * units.microsecond, 62000)))
+def test_time_to_samples_accepts_whole_counts_and_float_rounding(value, expected):
+    count = time_to_samples(value, 0.016, name="s1_padding")
+    assert count == expected
+    assert isinstance(count, int)
+
+
+@mark.parametrize("value", (0, 1.5, 24 * units.ns, 3 * units.pe,
+                            (3 + 2e-9) * 0.016 * units.microsecond,
+                            (3 - 2e-9) * 0.016 * units.microsecond,
+                            (62000 + 1e-5) * 0.016 * units.microsecond,
+                            float("nan") * units.ns, float("inf") * units.ns))
+def test_time_to_samples_rejects_invalid_durations_with_key(value):
+    with raises(ValueError, match="s2_holdon"):
+        time_to_samples(value, 0.016, name="s2_holdon")
 
 
 @dataclass

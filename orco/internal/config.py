@@ -10,6 +10,8 @@ from dataclasses import fields
 from dataclasses import is_dataclass
 from enum        import Enum
 from numbers     import Integral
+from math        import isclose
+from math        import isfinite
 
 from pint.errors import DimensionalityError
 
@@ -54,6 +56,26 @@ def config_value(value, expected_unit, *, name: str):
             raise ValueError(f"{name}: expected a dimensionless integer")
         return int(value)
     return value
+
+
+def time_to_samples(value, sampling_time: float, *, name: str) -> int:
+    """
+    Convert an explicit time quantity to a whole number of DAQ samples.
+
+    ``sampling_time`` is already in internal time units. Ratios within an
+    absolute tolerance of 1e-9 samples of an integer are rounded to that integer;
+    no relative tolerance is used. Nonfinite or fractional counts raise
+    ValueError naming the external configuration key. Range checks belong to
+    the configuration dataclass, and the DAQ supplies a valid sampling interval.
+    """
+    duration = config_value(value, units.microsecond, name=name)
+    ratio = duration / sampling_time
+    if not isfinite(ratio):
+        raise ValueError(f"{name}: expected a finite duration")
+    count = round(ratio)
+    if not isclose(ratio, count, rel_tol=0, abs_tol=1e-9):
+        raise ValueError(f"{name}: duration must be a multiple of the sampling time")
+    return count
 
 
 def config_from_scope(cls: type[_Config], scope: Mapping[str, Any], *,

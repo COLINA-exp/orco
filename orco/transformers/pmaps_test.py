@@ -13,6 +13,7 @@ import tables as tb
 from numpy.testing import assert_array_equal
 from pandas.errors import DatabaseError
 from pytest import mark
+from pytest import approx
 from pytest import raises
 from pytest import warns
 
@@ -20,6 +21,7 @@ from ..internal.symbols import Detector
 from ..database.io import get_database
 from ..internal.types import IndexRange
 from ..internal.types import Waveforms
+from ..internal.units import units
 from . import dsts
 from . import pmaps
 from . pmaps          import PeakConfig
@@ -41,8 +43,11 @@ SAMPLING_TIME = 0.016
                                "pmaps_pcolina_data_v0.conf", "dsts_mc.conf",
                                "dsts_pcolina_data_v0.conf"))
 def test_example_configs_have_explicit_correct_units(filename):
-    loader = DstConfig if filename.startswith("dsts") else PMapConfig
-    loader.load(Path(__file__).resolve().parents[2] / "config" / filename)
+    path = Path(__file__).resolve().parents[2] / "config" / filename
+    if filename.startswith("dsts"):
+        DstConfig.load(path)
+    else:
+        PMapConfig.load(path, SAMPLING_TIME)
 
 
 def peak_config(**overrides):
@@ -55,6 +60,70 @@ def peak_config(**overrides):
                   padding=1)
     values.update(overrides)
     return PeakConfig(**values)
+
+
+def peak_scope():
+    return dict(s1_min_width=16 * units.ns, s1_max_width=160 * units.ns,
+                s1_min_time=9 * units.ns, s1_max_time=1 * units.microsecond,
+                s1_threshold=2 * units.pe / units.microsecond,
+                s1_holdon=48 * units.ns, s1_padding=0 * units.ns)
+
+
+def test_peak_config_converts_times_once_without_mutating_scope():
+    scope = peak_scope()
+    original = dict(scope)
+    config = PeakConfig.from_scope(scope, SAMPLING_TIME, prefix="s1_")
+
+    assert scope == original
+    assert config.min_time == approx(0.009)
+    assert config == peak_config(min_time=config.min_time, max_time=1, threshold=2,
+                                 holdon=3, padding=0)
+    assert all(isinstance(getattr(config, field), int)
+               for field in ("min_samples", "max_samples", "holdon", "padding"))
+
+
+@mark.parametrize("field", ("min_width", "max_width", "holdon", "padding"))
+def test_peak_config_reports_external_key_for_fractional_sample_counts(field):
+    scope = peak_scope()
+    scope["s1_" + field] = 17 * units.ns
+    with raises(ValueError, match="s1_" + field):
+        PeakConfig.from_scope(scope, SAMPLING_TIME, prefix="s1_")
+
+
+@mark.parametrize("field", ("min_samples", "max_samples"))
+def test_peak_config_rejects_legacy_sample_keys(field):
+    scope = peak_scope()
+    scope["s1_" + field] = 1
+    with raises(ValueError, match="s1_" + field):
+        PeakConfig.from_scope(scope, SAMPLING_TIME, prefix="s1_")
+
+
+@mark.parametrize(("field", "value"),
+                  (("min_width", 0 * units.ns), ("max_width", 0 * units.ns),
+                   ("holdon", -16 * units.ns), ("padding", -16 * units.ns)))
+def test_peak_config_preserves_range_checks_after_conversion(field, value):
+    scope = peak_scope()
+    scope["s1_" + field] = value
+    with raises(ValueError):
+        PeakConfig.from_scope(scope, SAMPLING_TIME, prefix="s1_")
+
+
+def test_peak_config_accepts_zero_holdon_and_padding():
+    scope = peak_scope()
+    scope["s1_holdon"] = 0 * units.ns
+    config = PeakConfig.from_scope(scope, SAMPLING_TIME, prefix="s1_")
+    assert config.holdon == config.padding == 0
+
+
+@mark.parametrize(("filename", "s1", "s2"),
+                  (("pmaps_mc.conf", (1, 63, 5, 5), (64, 62000, 7, 8)),
+                   ("pmaps_run_8.conf", (1, 63, 5, 5), (64, 62000, 100, 200)),
+                   ("pmaps_pcolina_data_v0.conf", (20, 124, 31, 16), (125, 2500, 125, 250))))
+def test_migrated_examples_preserve_counts_at_16_ns(filename, s1, s2):
+    path = Path(__file__).resolve().parents[2] / "config" / filename
+    config = PMapConfig.load(path, SAMPLING_TIME)
+    for peak, expected in ((config.s1, s1), (config.s2, s2)):
+        assert (peak.min_samples, peak.max_samples, peak.holdon, peak.padding) == expected
 
 
 @mark.parametrize(
@@ -76,35 +145,35 @@ def test_peak_config_rejects_invalid_ranges(overrides):
                    ("s1_min_time", "0"),
                    ("s1_threshold", "2 * pe"),
                    ("s2_max_time", "1 * adc"),
-                   ("s1_holdon", "5 * microsecond"),
+                   ("s1_holdon", "5 * ns"),
                    ("s2_padding", "1.5")))
 def test_pmap_config_loads_transformer_settings(tmp_path, field, expression):
     filename = tmp_path / "pmaps.conf"
     filename.write_text(dedent("""
-        s1_min_samples = 1
-        s1_max_samples = 10
+        s1_min_width = 16 * ns
+        s1_max_width = 160 * ns
         s1_min_time = 0 * microsecond
         s1_max_time = 1000 * nanosecond
         s1_threshold = 2 * pe / microsecond
-        s1_holdon = 3
-        s1_padding = 4
+        s1_holdon = 48 * ns
+        s1_padding = 64 * ns
 
-        s2_min_samples = 5
-        s2_max_samples = 20
+        s2_min_width = 80 * ns
+        s2_max_width = 0.320 * microsecond
         s2_min_time = 1 * microsecond
         s2_max_time = 2 * microsecond
         s2_threshold = 6000 * photoelectron / millisecond
-        s2_holdon = 7
-        s2_padding = 8
+        s2_holdon = 112 * ns
+        s2_padding = 128 * ns
     """))
 
     if field is not None:
         filename.write_text(filename.read_text() + f"\n{field} = {expression}\n")
         with raises(ValueError, match=field):
-            PMapConfig.load(filename)
+            PMapConfig.load(filename, SAMPLING_TIME)
         return
 
-    config = PMapConfig.load(filename)
+    config = PMapConfig.load(filename, SAMPLING_TIME)
 
     # quantity fields are reduced to the internal system of units
     # (microseconds for time, plain numbers for counts and thresholds)
@@ -284,25 +353,25 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_daq,
         h5out.create_array(group, "event_id", events)
 
     config_file = tmp_path / "pmaps.conf"
-    config_file.write_text(dedent("""
+    config_file.write_text(dedent(f"""
         # A stale setting must not override the acquisition detector.
         detector = Colina
 
-        s1_min_samples = 1
-        s1_max_samples = 20
+        s1_min_width = {period_ns or 16} * ns
+        s1_max_width = {20 * (period_ns or 16)} * ns
         s1_min_time = 0 * microsecond
         s1_max_time = 1 * microsecond
         s1_threshold = 2 * pe / microsecond
-        s1_holdon = 1
-        s1_padding = 0
+        s1_holdon = {period_ns or 16} * ns
+        s1_padding = 0 * ns
 
-        s2_min_samples = 1
-        s2_max_samples = 20
+        s2_min_width = {period_ns or 16} * ns
+        s2_max_width = {20 * (period_ns or 16)} * ns
         s2_min_time = 0 * microsecond
         s2_max_time = 1 * microsecond
         s2_threshold = 100 * pe / microsecond
-        s2_holdon = 1
-        s2_padding = 0
+        s2_holdon = {period_ns or 16} * ns
+        s2_padding = 0 * ns
     """))
 
     output_file = tmp_path / "pmaps.h5"
@@ -340,6 +409,29 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_daq,
         assert h5out.root.PMaps.S2.nrows == 0
         assert_array_equal(np.unique(h5out.root.PMaps.S1.col("time")),
                            np.arange(5, 8) * (period_ns / 1000))
+
+
+@mark.parametrize("period_ns", (16, 32))
+def test_main_rejects_fractional_sample_duration_before_opening_output(tmp_path, period_ns):
+    input_file = tmp_path / "input.h5"
+    output_file = tmp_path / "output.h5"
+    daq_config = dict(detector="pCOLINA", effective=dict(sample_period_ns=period_ns))
+    with tb.open_file(input_file, "w") as output:
+        daq = output.create_group("/", "Acquisition")
+        output.create_array(daq, "config_json", dumps(daq_config).encode("utf-8"))
+    config_file = tmp_path / "pmaps.conf"
+    example = Path(__file__).resolve().parents[2] / "config" / "pmaps_mc.conf"
+    # Align the minimum width for either DAQ interval; padding is not aligned.
+    config_file.write_text(example.read_text() + "\ns1_min_width = 32 * ns\n"
+                           "s1_max_width = 1024 * ns\ns1_holdon = 96 * ns\ns1_padding = 17 * ns\n")
+    original = b"existing output must survive invalid time settings"
+    output_file.write_bytes(original)
+
+    with raises(ValueError, match="s1_padding"):
+        main(["-i", str(input_file), "-o", str(output_file),
+              "-c", str(config_file), "-r", "0", "--quiet"])
+
+    assert output_file.read_bytes() == original
 
 
 @mark.parametrize("transformer", (pmaps, dsts))

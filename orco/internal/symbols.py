@@ -29,6 +29,8 @@ class AutoNameEnum(Enum):
 class Detector(AutoNameEnum):
     pColina = auto()
     Colina  = auto()
+    CC      = auto()
+    Other   = auto()
 
     @classmethod
     def get(cls, label: str) -> Detector:

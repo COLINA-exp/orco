@@ -50,9 +50,10 @@ Both transformers copy the full `/Acquisition` group from input to output,
 preserving its attributes and all nested groups, arrays and tables.
 This carries acquisition metadata through raw waveform, PMAP and DST files
 without modifying it. The copy is independent of event limits and peak
-selections. Both transformers require `/Acquisition/config_json` with a known
-`detector` and the JSON sampling period described above. Missing metadata is
-not replaced by defaults.
+selections. Both transformers require `/Acquisition/config_json` with the JSON
+sampling period described above. A known `detector` is required only for bundled
+database discovery; with an explicit database, that label is ignored and may be
+absent. Missing sampling metadata is not replaced by defaults.
 
 `/Acquisition/config_json` is a scalar string array holding the full run
 configuration as JSON. A standalone reader is available:
@@ -148,7 +149,8 @@ the first event. Empty input can fail in the final progress message unless
 The DST reader materializes both complete PMAP tables in memory and filters them
 for each event. Large files may need substantial memory and processing time.
 PMAPs carry sampling time and the original `/Acquisition` metadata, including
-the detector used by both transformers. The transformers do not record the
+any detector label. With an explicit database that label is not used or verified.
+The transformers do not record the
 reconstruction run number or configuration settings. Supply a consistent `-r`
 at both stages yourself; it is not checked against the acquisition run number.
 

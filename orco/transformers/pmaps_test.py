@@ -252,8 +252,12 @@ def test_calibration_gains_follow_waveform_sensor_order():
 
 @mark.parametrize("period_ns", (16, 32, None))
 @mark.parametrize("has_daq", (False, True))
-@mark.parametrize("database_override", (None, "--database", "-db"))
-def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_daq, database_override):
+@mark.parametrize(("database_override", "detector_label"),
+                  ((None, "pCOLINA"), ("--database", "pCOLINA"), ("-db", "pCOLINA"),
+                   ("--database", "unknown"), ("-db", "unknown"),
+                   ("--database", None), ("-db", None)))
+def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_daq,
+                                                 database_override, detector_label):
     input_file = tmp_path / "waveforms.h5"
     amplitudes = np.zeros((2, 4, 20))
     amplitudes[:, :, 5:8] = -5   # pulse recorded as a negative dip
@@ -261,7 +265,9 @@ def test_main_stores_event_numbers_in_pmaps_events(tmp_path, period_ns, has_daq,
     if database_override:
         channels += 10
     events   = np.array([100, 101])
-    daq_config = dict(run_number=0, detector="pCOLINA", effective={})
+    daq_config = dict(run_number=0, effective={})
+    if detector_label is not None:
+        daq_config["detector"] = detector_label
     if period_ns is not None:
         daq_config["effective"]["sample_period_ns"] = period_ns
     payload = dumps(daq_config).encode("utf-8")
@@ -352,8 +358,7 @@ def test_main_rejects_missing_or_unknown_detector_before_opening_output(tmp_path
     config_name = transformer.__name__.rsplit(".", 1)[-1] + "_mc.conf"
     config_file = Path(__file__).resolve().parents[2] / "config" / config_name
 
-    error = KeyError if detector is None else ValueError
-    with raises(error, match="detector" if detector is None else "unknown"):
+    with raises(ValueError, match="detector" if detector is None else "unknown"):
         transformer.main(["-i", str(input_file), "-o", str(output_file),
                           "-c", str(config_file), "-r", "0", "--quiet"])
 

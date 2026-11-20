@@ -49,16 +49,18 @@ def find_databases() -> dict[Detector, Path]:
 
 
 
-def get_database(detector: Detector, database_file: Path | None = None) -> Path:
+def get_database(detector: Detector | str | None = None, database_file: Path | None = None) -> Path:
     """
     Resolve an explicit database file or discover the bundled detector database.
 
-    Explicit files bypass discovery and may have any filename or extension.
+    Explicit files bypass detector resolution and discovery, and may have any
+    filename or extension. Their detector label may be absent or unknown.
     No fallback is attempted if the selected path is invalid. SQLite contents
     and table schemas are checked only when queried by a loader.
 
     Args:
-        detector: Detector used for bundled database discovery.
+        detector: Detector or case-insensitive label for bundled discovery.
+            Required only when ``database_file`` is omitted.
         database_file: Optional override of the bundled database path.
 
     Returns:
@@ -67,10 +69,15 @@ def get_database(detector: Detector, database_file: Path | None = None) -> Path:
 
     Raises:
         FileNotFoundError: If the selected file or bundled database is missing.
-        ValueError: If the selected path is not a regular file, or discovery
-            encounters an unknown detector filename.
+        ValueError: If the selected path is not a regular file, the bundled
+            detector is missing or unknown, or discovery encounters an unknown
+            detector filename.
     """
     if database_file is None:
+        if detector is None:
+            raise ValueError("detector is required to select a bundled database")
+        if isinstance(detector, str):
+            detector = Detector.get(detector)
         databases = find_databases()
         if detector not in databases:
             raise FileNotFoundError(f"No SQLite database found for {detector.name} in {DATABASE_DIRECTORY}")

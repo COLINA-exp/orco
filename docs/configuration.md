@@ -12,8 +12,10 @@ Both transformers read the top-level `detector` string from the input's
 `/Acquisition/config_json`, not from the reconstruction configuration. Names
 are case-insensitive: `"pCOLINA"` resolves to `Detector.pColina`. `Colina` is
 also recognized, but no database for it is currently bundled. Missing detector
-metadata or unknown names fail before opening the output file. There is no
-configuration fallback and no fallback for other required configuration keys.
+metadata or unknown names fail before opening the output file only when using
+bundled discovery. With `-db` or `--database`, the detector label is ignored and
+may be absent; the DAQ JSON is still copied unchanged. There is no configuration
+fallback and no fallback for other required configuration keys.
 
 ## Installed examples
 

@@ -53,8 +53,9 @@ orco dsts  -i pmaps.h5     -o dsts.h5  -c dsts.conf  -r -1
 
 `-r -1` selects the bundled simulation calibration and geometry. For measured
 data, supply the actual run number and appropriate configurations. Both stages
-read the detector from `/Acquisition/config_json` (case-insensitive), which is
-copied to each output. Both stages also read `effective.sample_period_ns` from
+use the detector from `/Acquisition/config_json` (case-insensitive) for bundled
+database discovery. With `-db` or `--database`, the label is ignored and may be
+absent. The JSON is copied unchanged to each output. Both stages read `effective.sample_period_ns` from
 that JSON. Neither value comes from the reconstruction config. Use the same `-r`
 for both stages; it is not checked against the acquisition's run number.
 

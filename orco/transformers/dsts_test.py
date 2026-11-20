@@ -238,12 +238,18 @@ def test_empty_peak_keeps_sensor_schema():
 @mark.parametrize("sampling_time", (0.016, 0.032, 0.1))
 @mark.parametrize("has_daq", (False, True))
 @mark.parametrize("attribute_time", (None, 999))
-@mark.parametrize("database_override", (None, "--database", "-db"))
+@mark.parametrize(("database_override", "detector_label"),
+                  ((None, "pCOLINA"), ("--database", "pCOLINA"), ("-db", "pCOLINA"),
+                   ("--database", "unknown"), ("-db", "unknown"),
+                   ("--database", None), ("-db", None)))
 def test_main_uses_json_sampling_time_when_writing_dst(tmp_path, monkeypatch, sampling_time,
-                                                    has_daq, attribute_time, database_override):
+                                                    has_daq, attribute_time, database_override,
+                                                    detector_label):
     input_file = tmp_path / "pmaps.h5"
-    daq_config = dict(run_number=0, detector="pCOLINA",
+    daq_config = dict(run_number=0,
                       effective=dict(sample_period_ns=sampling_time * 1000))
+    if detector_label is not None:
+        daq_config["detector"] = detector_label
     payload = dumps(daq_config).encode("utf-8")
     peaks = pd.DataFrame({"event": [42, 42],
                           "peak": [0, 0],

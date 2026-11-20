@@ -27,7 +27,6 @@ from ..database.io      import get_database
 from ..database.io      import load_channel_mapping
 from ..database.io      import load_sensor_calibration
 from ..internal.config  import config_from_scope
-from ..internal.symbols import Detector
 from ..internal.symbols import all_symbols
 from ..internal.types   import IndexRange
 from ..internal.types   import Waveforms
@@ -312,9 +311,8 @@ def main(argv=None):
 
     config = PMapConfig.load(args.config_file)
     daq_config    = read_daq_config(args.input_file)
-    detector      = Detector.get(daq_config["detector"])
     sampling_time = get_sampling_time(daq_config)
-    database_file = get_database(detector, args.database)
+    database_file = get_database(daq_config.get("detector"), args.database)
     mapping       = load_channel_mapping(database_file, args.run_number)
 
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:

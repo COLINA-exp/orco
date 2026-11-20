@@ -277,14 +277,25 @@ def test_find_databases_rejects_unknown_detector(tmp_path, monkeypatch):
         find_databases()
 
 
-def test_get_database_explicit_file_bypasses_discovery(tmp_path, monkeypatch):
+@mark.parametrize("detector", (Detector.Colina, "unknown", None))
+def test_get_database_explicit_file_bypasses_discovery(tmp_path, monkeypatch, detector):
     filename = tmp_path / "custom-calibration.data"
     create_database(filename)
     (tmp_path / "unknown.sqlite3").touch()
     monkeypatch.setattr(io, "DATABASE_DIRECTORY", tmp_path)
     monkeypatch.chdir(tmp_path)
 
-    assert get_database(Detector.Colina, filename.relative_to(tmp_path)) == filename
+    assert get_database(detector, filename.relative_to(tmp_path)) == filename
+
+
+def test_get_database_resolves_case_insensitive_label():
+    assert get_database("pCOLINA") == get_database(Detector.pColina)
+
+
+@mark.parametrize("detector", (None, "unknown"))
+def test_get_database_requires_known_detector_without_override(detector):
+    with raises(ValueError):
+        get_database(detector)
 
 
 def test_get_database_rejects_missing_override_without_fallback(tmp_path):

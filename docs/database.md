@@ -7,6 +7,9 @@ case; the detector comes from DAQ JSON.
 
 Both transformers accept `-db FILE` (or `--database FILE`) to override bundled
 discovery.
+With an explicit file, detector-name resolution is skipped: the DAQ detector
+label may be absent or unknown. Without an override, the label must identify a
+known detector for bundled discovery.
 Explicit files may have any filename or extension, must use the existing SQLite
 schema, and are opened read-only. An invalid explicit file never falls back to
 a bundled database. The selected path must be an existing regular file; SQLite

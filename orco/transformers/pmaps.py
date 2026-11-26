@@ -111,9 +111,9 @@ def get_sensor_ids(channels       : np.ndarray,
     """
     Translate the channel identifiers of an input file into sensor identifiers.
 
-    Channels present in the input but absent from the mapping are ignored and
-    reported with a warning; channels expected by the mapping but absent from
-    the input raise an error.
+    Channels present in the input but absent from the mapping raise an error.
+    Channels expected by the mapping but absent from the input produce a warning;
+    processing uses only the channels present, in input order.
 
     Args:
         channels: One-dimensional array of channel identifiers found in
@@ -126,23 +126,23 @@ def get_sensor_ids(channels       : np.ndarray,
         among ``channels``.
 
     Warns:
-        If the input data contains channels not present in the mapping.
+        If channels expected by the mapping are missing from the input.
 
     Raises:
-        ValueError: If the input data is missing channels expected by the
-            mapping.
+        ValueError: If an input channel is absent from the mapping.
     """
     expected = channel_mapping.ChannelID.values
 
     exist_in_db = np.isin(channels, expected)
     if not exist_in_db.all():
-        warnings.warn(f"Input data has channels unknown to the mapping; "
-                      f"they will be ignored: {channels[~exist_in_db].tolist()}")
+        raise ValueError(f"Input data has channels unknown to the mapping: "
+                         f"{channels[~exist_in_db].tolist()}")
 
     exist_in_file = np.isin(expected, channels)
     if not np.all(exist_in_file):
         missing = expected[~exist_in_file].tolist()
-        raise ValueError(f"Input data is missing expected channels: {missing}")
+        warnings.warn(f"Input data is missing expected channels: {missing}; "
+                      "processing will continue with the available channels")
 
     sensor_ids = (channel_mapping.set_index("ChannelID")
                                  .SensorID
@@ -165,13 +165,13 @@ def read_wfms(input_file     : Path,
         sampling_time: Input metadata's sample interval, sample zero has time zero.
 
     Yields:
-        Mappings with ``event`` and ``wfms`` (a ``Waveforms`` instance). Input
-        channels absent from the mapping are dropped with a warning. The input
-        file remains open while the iterator is consumed.
+        Mappings with ``event`` and ``wfms`` (a ``Waveforms`` instance).
+        Missing expected channels produce a warning; only available channels
+        are included. The input file remains open while the iterator is consumed.
 
     Raises:
         RuntimeError: If waveform axes do not match the identifier arrays.
-        ValueError: If a channel required by the mapping is missing.
+        ValueError: If an input channel is absent from the mapping.
     """
     with tb.open_file(input_file) as infile:
         all_wfms = infile.root.Waveforms.adcs

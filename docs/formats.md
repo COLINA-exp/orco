@@ -26,9 +26,11 @@ The top-level JSON `detector` string selects the bundled database, ignoring case
 selection in either transformer. The run number still comes from `-r`;
 neither transformer uses a config-file detector or the JSON's run number.
 The channel mapping for that detector/run translates channel IDs into sensor
-IDs. Unknown input channels are dropped with a warning; missing channels
-required by the mapping raise an error. PMAP columns use sensor IDs, not raw
-channel IDs. Treat channel and event identifiers as unique within their axes.
+IDs. Input channels absent from the mapping raise an error. Expected channels
+missing from the input produce a warning, and processing continues using only
+the available channels; no zero-filled waveforms are added. PMAP columns use
+sensor IDs, not raw channel IDs. Treat channel and event identifiers as unique
+within their axes.
 
 For each event the transformer subtracts each sensor's median baseline, reverses
 polarity, and divides by its gain. Raw pulses are therefore expected to be

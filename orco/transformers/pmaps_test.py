@@ -291,10 +291,11 @@ def test_read_wfms_yields_waveform_collections(tmp_path):
                        np.arange(3) * SAMPLING_TIME)
 
 
-def test_read_wfms_warns_and_drops_unknown_channels(tmp_path):
+@mark.parametrize("unknown_channels", (False, True))
+def test_read_wfms_handles_channel_mismatches(tmp_path, unknown_channels):
     filename = tmp_path / "waveforms.h5"
-    amplitudes = np.arange(12).reshape(2, 3, 2)
-    channels = np.array([10, 11, 42])
+    channels = np.array([10, 11, 42] if unknown_channels else [11, 10])
+    amplitudes = np.arange(4 * len(channels)).reshape(2, len(channels), 2)
     events = np.array([100, 101])
     with tb.open_file(filename, "w") as h5out:
         group = h5out.create_group("/", "Waveforms")
@@ -302,15 +303,56 @@ def test_read_wfms_warns_and_drops_unknown_channels(tmp_path):
         h5out.create_array(group, "channel_id", channels)
         h5out.create_array(group, "event_id", events)
 
-    channel_mapping = pd.DataFrame({"ChannelID": [10, 11],
-                                    "SensorID": [1010, 1011]})
+    mapped = np.array([10, 11] if unknown_channels else [10, 11, 42])
+    channel_mapping = pd.DataFrame({"ChannelID": mapped, "SensorID": mapped + 1000})
     sampling_time = SAMPLING_TIME
 
-    with warns(UserWarning, match="unknown to the mapping"):
+    if unknown_channels:
+        with raises(ValueError, match=r"unknown to the mapping: \[42\]"):
+            list(read_wfms(filename, channel_mapping, sampling_time))
+        return
+
+    with warns(UserWarning, match=r"missing expected channels: \[42\]") as caught:
         records = list(read_wfms(filename, channel_mapping, sampling_time))
 
-    assert_array_equal(records[0]["wfms"].sensors, [1010, 1011])
-    assert_array_equal(records[0]["wfms"].amplitudes, amplitudes[0, :2])
+    assert len(caught) == 1
+    assert [record["event"] for record in records] == events.tolist()
+    for i, record in enumerate(records):
+        assert_array_equal(record["wfms"].sensors, [1011, 1010])
+        assert_array_equal(record["wfms"].amplitudes, amplitudes[i])
+
+
+def test_main_processes_events_with_missing_expected_channels(tmp_path):
+    input_file = tmp_path / "waveforms.h5"
+    output_file = tmp_path / "pmaps.h5"
+    amplitudes = np.zeros((2, 3, 20))
+    amplitudes[:, :, 5:8] = -5
+    with tb.open_file(input_file, "w") as output:
+        daq = output.create_group("/", "Acquisition")
+        config = dict(detector="pCOLINA", effective=dict(sample_period_ns=16))
+        output.create_array(daq, "config_json", dumps(config).encode("utf-8"))
+        waveforms = output.create_group("/", "Waveforms")
+        output.create_array(waveforms, "adcs", amplitudes)
+        output.create_array(waveforms, "channel_id", np.array([3, 1, 2]))
+        output.create_array(waveforms, "event_id", np.array([100, 101]))
+    example = Path(__file__).resolve().parents[2] / "config" / "pmaps_mc.conf"
+    config_file = tmp_path / "pmaps.conf"
+    config_file.write_text(example.read_text() + "\ns1_min_time = 0 * microsecond\n"
+                           "s1_max_time = 1 * microsecond\ns1_threshold = 2 * pe / microsecond\n"
+                           "s1_padding = 0 * ns\n")
+
+    with warns(UserWarning, match=r"missing expected channels: \[4\]") as caught:
+        main(["-i", str(input_file), "-o", str(output_file),
+              "-c", str(config_file), "-r", "0", "--quiet"])
+
+    assert len(caught) == 1
+    with tb.open_file(output_file) as output:
+        assert_array_equal(output.root.PMaps.events.col("event"), [100, 101])
+        s1 = output.root.PMaps.S1
+        assert s1.nrows == 6
+        assert_array_equal(s1.col("summed"), 15)
+        assert [name for name in s1.colnames if name.startswith("sensor_")] == [
+            "sensor_002", "sensor_000", "sensor_001"]
 
 
 def test_calibration_gains_follow_waveform_sensor_order():
@@ -497,20 +539,20 @@ def test_get_sensor_ids_maps_channels_in_input_order():
     assert_array_equal(keep, [True, True])
 
 
-def test_get_sensor_ids_warns_and_drops_unknown_channels():
+def test_get_sensor_ids_raises_on_unknown_channels():
     mapping = pd.DataFrame({"ChannelID": [0, 2],
                             "SensorID": [1000, 1002]})
 
-    with warns(UserWarning, match="unknown to the mapping"):
-        sensor_ids, keep = get_sensor_ids(np.array([0, 1, 2]), mapping)
-
-    assert_array_equal(sensor_ids, [1000, 1002])
-    assert_array_equal(keep, [True, False, True])
+    with raises(ValueError, match=r"unknown to the mapping: \[1\]"):
+        get_sensor_ids(np.array([0, 1, 2]), mapping)
 
 
-def test_get_sensor_ids_raises_on_missing_channels():
+def test_get_sensor_ids_warns_on_missing_channels():
     mapping = pd.DataFrame({"ChannelID": [0, 1, 2],
                             "SensorID": [1000, 1001, 1002]})
 
-    with raises(ValueError, match="missing expected channels"):
-        get_sensor_ids(np.array([0, 1]), mapping)
+    with warns(UserWarning, match=r"missing expected channels: \[2\]"):
+        sensor_ids, keep = get_sensor_ids(np.array([1, 0]), mapping)
+
+    assert_array_equal(sensor_ids, [1001, 1000])
+    assert_array_equal(keep, [True, True])

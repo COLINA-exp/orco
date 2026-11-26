@@ -3,6 +3,7 @@ from pathlib import Path
 from json import dumps
 from shutil import copyfile
 from contextlib import closing
+from contextlib import nullcontext
 
 import sqlite3
 
@@ -322,18 +323,22 @@ def test_read_wfms_handles_channel_mismatches(tmp_path, unknown_channels):
         assert_array_equal(record["wfms"].amplitudes, amplitudes[i])
 
 
-def test_main_processes_events_with_missing_expected_channels(tmp_path):
+@mark.parametrize("ignore_channels", ((), (1,), (4,), (1, 4, 99), (99,), (77,)))
+def test_main_processes_events_with_missing_expected_channels(tmp_path, ignore_channels):
     input_file = tmp_path / "waveforms.h5"
     output_file = tmp_path / "pmaps.h5"
-    amplitudes = np.zeros((2, 3, 20))
+    channels = [3, 1, 2] + ([99] if 99 in ignore_channels else [])
+    amplitudes = np.zeros((2, len(channels), 20))
     amplitudes[:, :, 5:8] = -5
+    if 99 in channels:
+        amplitudes[:, -1, 5:8] = -100
     with tb.open_file(input_file, "w") as output:
         daq = output.create_group("/", "Acquisition")
         config = dict(detector="pCOLINA", effective=dict(sample_period_ns=16))
         output.create_array(daq, "config_json", dumps(config).encode("utf-8"))
         waveforms = output.create_group("/", "Waveforms")
         output.create_array(waveforms, "adcs", amplitudes)
-        output.create_array(waveforms, "channel_id", np.array([3, 1, 2]))
+        output.create_array(waveforms, "channel_id", np.array(channels))
         output.create_array(waveforms, "event_id", np.array([100, 101]))
     example = Path(__file__).resolve().parents[2] / "config" / "pmaps_mc.conf"
     config_file = tmp_path / "pmaps.conf"
@@ -341,18 +346,28 @@ def test_main_processes_events_with_missing_expected_channels(tmp_path):
                            "s1_max_time = 1 * microsecond\ns1_threshold = 2 * pe / microsecond\n"
                            "s1_padding = 0 * ns\n")
 
-    with warns(UserWarning, match=r"missing expected channels: \[4\]") as caught:
-        main(["-i", str(input_file), "-o", str(output_file),
-              "-c", str(config_file), "-r", "0", "--quiet"])
+    arguments = ["-i", str(input_file), "-o", str(output_file),
+                 "-c", str(config_file), "-r", "0", "--quiet"]
+    for channel in ignore_channels:
+        arguments.extend(["--ignore-channels", str(channel)])
+    original = input_file.read_bytes()
+    warning = (nullcontext() if 4 in ignore_channels else
+               warns(UserWarning, match=r"missing expected channels: \[4\]"))
+    with warning as caught:
+        main(arguments)
 
-    assert len(caught) == 1
+    if 4 not in ignore_channels:
+        assert len(caught) == 1
+    assert input_file.read_bytes() == original
     with tb.open_file(output_file) as output:
         assert_array_equal(output.root.PMaps.events.col("event"), [100, 101])
         s1 = output.root.PMaps.S1
         assert s1.nrows == 6
-        assert_array_equal(s1.col("summed"), 15)
-        assert [name for name in s1.colnames if name.startswith("sensor_")] == [
+        assert_array_equal(s1.col("summed"), 10 if 1 in ignore_channels else 15)
+        expected = ["sensor_002", "sensor_001"] if 1 in ignore_channels else [
             "sensor_002", "sensor_000", "sensor_001"]
+        assert [name for name in s1.colnames if name.startswith("sensor_")] == expected
+        assert output.root.Acquisition.config_json.read() == dumps(config).encode("utf-8")
 
 
 def test_calibration_gains_follow_waveform_sensor_order():
@@ -556,3 +571,28 @@ def test_get_sensor_ids_warns_on_missing_channels():
 
     assert_array_equal(sensor_ids, [1001, 1000])
     assert_array_equal(keep, [True, True])
+
+
+@mark.parametrize(("ignored", "expected_ids", "expected_keep"),
+                  (((1, 99), [1002, 1000], [True, False, True, False]),
+                   ((1, 1, 99, 77), [1002, 1000], [True, False, True, False]),
+                   ((0, 1, 2, 99), [], [False, False, False, False])))
+def test_get_sensor_ids_excludes_ignored_channels_before_mapping_checks(ignored, expected_ids, expected_keep):
+    mapping = pd.DataFrame(dict(ChannelID=[0, 1, 2], SensorID=[1000, 1001, 1002]))
+    sensor_ids, keep = get_sensor_ids(np.array([2, 99, 0, 1]), mapping, ignored)
+    assert_array_equal(sensor_ids, expected_ids)
+    assert_array_equal(keep, expected_keep)
+
+
+def test_get_sensor_ids_still_rejects_nonignored_unknown_channels():
+    mapping = pd.DataFrame(dict(ChannelID=[0], SensorID=[1000]))
+    with raises(ValueError, match=r"unknown to the mapping: \[99\]"):
+        get_sensor_ids(np.array([0, 42, 99]), mapping, [42])
+
+
+def test_get_sensor_ids_still_warns_for_nonignored_missing_channels():
+    mapping = pd.DataFrame(dict(ChannelID=[0, 1, 2], SensorID=[1000, 1001, 1002]))
+    with warns(UserWarning, match=r"missing expected channels: \[2\]"):
+        sensor_ids, keep = get_sensor_ids(np.array([0]), mapping, [1])
+    assert_array_equal(sensor_ids, [1000])
+    assert_array_equal(keep, [True])

@@ -21,7 +21,7 @@ import numpy  as np
 import tables as tb
 import pandas as pd
 
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterator, Mapping, Sequence
 
 from ..database.io      import get_database
 from ..database.io      import load_channel_mapping
@@ -107,22 +107,25 @@ class PMapConfig:
 
 
 def get_sensor_ids(channels       : np.ndarray,
-                   channel_mapping: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+                   channel_mapping: pd.DataFrame,
+                   ignore_channels: Sequence[int] = ()) -> tuple[np.ndarray, np.ndarray]:
     """
     Translate the channel identifiers of an input file into sensor identifiers.
 
     Channels present in the input but absent from the mapping raise an error.
     Channels expected by the mapping but absent from the input produce a warning;
     processing uses only the channels present, in input order.
+    Explicitly ignored channels are excluded from both checks.
 
     Args:
         channels: One-dimensional array of channel identifiers found in
             the input data.
         channel_mapping: Sensor-to-channel mapping valid for the run.
+        ignore_channels: Input ChannelID values to exclude, not sensor IDs.
 
     Returns:
         A tuple ``(sensor_ids, keep)`` with the sensor identifiers of the
-        mapped input channels and the boolean mask selecting those channels
+        retained input channels and the boolean mask selecting those channels
         among ``channels``.
 
     Warns:
@@ -131,14 +134,16 @@ def get_sensor_ids(channels       : np.ndarray,
     Raises:
         ValueError: If an input channel is absent from the mapping.
     """
+    keep = ~np.isin(channels, ignore_channels)
     expected = channel_mapping.ChannelID.values
+    expected = expected[~np.isin(expected, ignore_channels)]
 
-    exist_in_db = np.isin(channels, expected)
-    if not exist_in_db.all():
+    unknown = keep & ~np.isin(channels, expected)
+    if unknown.any():
         raise ValueError(f"Input data has channels unknown to the mapping: "
-                         f"{channels[~exist_in_db].tolist()}")
+                         f"{channels[unknown].tolist()}")
 
-    exist_in_file = np.isin(expected, channels)
+    exist_in_file = np.isin(expected, channels[keep])
     if not np.all(exist_in_file):
         missing = expected[~exist_in_file].tolist()
         warnings.warn(f"Input data is missing expected channels: {missing}; "
@@ -146,14 +151,15 @@ def get_sensor_ids(channels       : np.ndarray,
 
     sensor_ids = (channel_mapping.set_index("ChannelID")
                                  .SensorID
-                                 .loc[channels[exist_in_db]]
+                                 .loc[channels[keep]]
                                  .values)
-    return sensor_ids, exist_in_db
+    return sensor_ids, keep
 
 
 def read_wfms(input_file     : Path,
               channel_mapping: pd.DataFrame,
-              sampling_time  : float) -> Iterator[Mapping[str, Any]]:
+              sampling_time  : float,
+              ignore_channels: Sequence[int] = ()) -> Iterator[Mapping[str, Any]]:
     """
     Yield raw event waveforms in mapped sensor order.
 
@@ -163,6 +169,8 @@ def read_wfms(input_file     : Path,
             ``channel_id`` and ``event_id`` arrays in that group.
         channel_mapping: Run-valid dataframe with ``ChannelID`` and ``SensorID``.
         sampling_time: Input metadata's sample interval, sample zero has time zero.
+        ignore_channels: Input ChannelID values to exclude before mapping
+            checks and reconstruction. Absent ignored channels do not warn.
 
     Yields:
         Mappings with ``event`` and ``wfms`` (a ``Waveforms`` instance).
@@ -183,7 +191,7 @@ def read_wfms(input_file     : Path,
         if (all_wfms.shape[0], all_wfms.shape[1]) != (event_id.size, channels.size):
             raise RuntimeError("Invalid shape of waveform array")
 
-        sensor_ids, keep = get_sensor_ids(channels, channel_mapping)
+        sensor_ids, keep = get_sensor_ids(channels, channel_mapping, ignore_channels)
         time = np.arange(all_wfms.shape[2]) * sampling_time
         for amplitudes, event in zip(all_wfms, event_id):
             amplitudes = amplitudes[keep]
@@ -326,6 +334,8 @@ def main(argv=None):
     parser.add_argument("-n", "--n-events"   , type=int , default =-1  , help="number of events to process")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("-db", "--database", type=Path, help="SQLite database file (default: bundled detector database)")
+    parser.add_argument("-m", "--ignore-channels", type=int, nargs="+", action="extend", default=[],
+                        help="input ChannelID values to exclude before mapping checks and reconstruction")
 
     args = parser.parse_args(argv)
 
@@ -344,7 +354,7 @@ def main(argv=None):
     with tb.open_file(args.output_file, "w", filters=tb.Filters(complib="zlib", complevel=4)) as outfile:
         copy_daq_config(args.input_file, outfile)
 
-        for i, data in enumerate(read_wfms(args.input_file, mapping, sampling_time)):
+        for i, data in enumerate(read_wfms(args.input_file, mapping, sampling_time, args.ignore_channels)):
             if not args.quiet:
                 print(f"\rProcessing event {i:>05}", end="", flush=True)
 

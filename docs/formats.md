@@ -32,6 +32,19 @@ the available channels; no zero-filled waveforms are added. PMAP columns use
 sensor IDs, not raw channel IDs. Treat channel and event identifiers as unique
 within their axes.
 
+`orco pmaps --ignore-channels 1 4 7 ...` excludes the listed input `ChannelID`
+values before mapping validation, calibration and peak finding. The option
+can be repeated to extend the list. IDs refer to electronics channels, not
+`SensorID` or channel-axis positions. Ignored channels may be absent or unknown
+to the database: they neither raise an error nor produce a missing-channel
+warning. Unknown channels not explicitly ignored still raise an error, and
+other missing expected channels still warn.
+
+Only retained sensors appear in PMAP tables and their `summed` waveforms; DST
+charge, multiplicity and position calculations consequently use those sensors.
+No replacement waveforms are added, and the input file and copied DAQ JSON are
+not modified to reflect this reconstruction-only exclusion.
+
 For each event the transformer subtracts each sensor's median baseline, reverses
 polarity, and divides by its gain. Raw pulses are therefore expected to be
 negative-going. Gains are looked up by `SensorID` and ordered to match the

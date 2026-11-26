@@ -63,6 +63,12 @@ Both transformers require `-i`, `-o`, `-c` and `-r`. `-n N` limits processing to
 the first `N` input events; the default `-n -1` processes all events. `--quiet`
 suppresses progress messages.
 
+PMAP also accepts `--ignore-channels 1 4 7` to exclude input `ChannelID` values
+before mapping checks and reconstruction. These are electronics channel IDs,
+not sensor IDs. Ignored channels contribute neither sensor columns nor charge
+to PMAPs, and deliberately excluded channels do not produce missing-channel
+warnings. The input file and copied DAQ configuration remain unchanged.
+
 Both transformers accept `-db FILE` (or `--database FILE`) to use a separate
 read-only SQLite database. Without it, ORCO selects the bundled database using
 the DAQ detector.

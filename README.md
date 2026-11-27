@@ -89,6 +89,25 @@ and geometry data at both stages; see the [database guide](docs/database.md).
 The first time you enter your copy of the repo, allow `direnv` to read the
 `.envrc` file (`direnv allow`), let it install everything and you are all set.
 
+Alternatively, enter the development environment with `nix develop`. It includes
+`just` for common commands:
+
+```sh
+just                       # list recipes
+just test                  # pytest, with warnings treated as errors
+just test -k padding       # forward extra pytest arguments
+just check                 # isolated Nix flake checks
+just build                 # build the installable package
+just run --help            # run the checkout's CLI
+just pmaps --help          # run the checkout's PMAP transformer
+just dsts --help           # run the checkout's DST transformer
+```
+
+Run recipes inside `nix develop`/direnv, or use `nix develop --command just test`
+from outside the environment. The reconstruction recipes forward arguments
+unchanged and require explicit input, output, config and run number as usual;
+they do not select example configurations automatically.
+
 Runtime modules live in `orco/reco`, `orco/io`, `orco/database` and
 `orco/internal`. Transformer entry points live in `orco/transformers`; each
 exposes `main(argv=None)` and uses package-relative imports. The dispatcher
@@ -102,7 +121,7 @@ to the development shell is not sufficient.
 Run the test suite in the development environment:
 
 ```sh
-pytest
+just test
 ```
 
 `nix flake check` also runs the test suite in an isolated Nix build.

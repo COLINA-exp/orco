@@ -137,6 +137,7 @@
               packages = [
                 python
                 pyright
+                pkgs.just
               ];
 
               # Shell configuration

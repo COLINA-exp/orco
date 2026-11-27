@@ -11,6 +11,7 @@ import importlib
 import pathlib
 import pkgutil
 import sys
+import warnings
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 import orco.transformers
@@ -24,12 +25,19 @@ def transformer_names():
                   and not module.name.endswith("_test"))
 
 
+def _format_warning(message, category, filename, lineno, line=None):
+    """Format CLI warnings without source paths, line numbers or code excerpts."""
+    return f"Warning: {message}\n"
+
+
 def main(argv=None):
     """
     Parse the transformer name and forward remaining arguments unchanged.
 
     ``argv`` excludes the executable name; None uses the process command line.
     Help following the transformer name is handled by that transformer's parser.
+    Warnings use concise stderr output during import and execution; filtering
+    is unchanged and the original formatter is restored afterwards.
     """
     argv = sys.argv[1:] if argv is None else argv
     parser = argparse.ArgumentParser(description="Run an ORCO data transformer", usage="%(prog)s TRANSFORMER [ARG ...]")
@@ -37,11 +45,16 @@ def main(argv=None):
 
     # Parse only the transformer name; remaining arguments belong to it.
     args = parser.parse_args(argv[:1])
-    transformer = importlib.import_module(f"{orco.transformers.__name__}.{args.transformer}")
-    transformer_main = getattr(transformer, "main", None)
-    if not callable(transformer_main):
-        parser.error(f"transformer {args.transformer!r} has no callable main()")
-    return transformer_main(argv[1:])
+    original_formatter = warnings.formatwarning
+    warnings.formatwarning = _format_warning
+    try:
+        transformer = importlib.import_module(f"{orco.transformers.__name__}.{args.transformer}")
+        transformer_main = getattr(transformer, "main", None)
+        if not callable(transformer_main):
+            parser.error(f"transformer {args.transformer!r} has no callable main()")
+        return transformer_main(argv[1:])
+    finally:
+        warnings.formatwarning = original_formatter
 
 
 if __name__ == "__main__":
